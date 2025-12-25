@@ -1,0 +1,47 @@
+# --- Go ---
+# Binaries
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test / coverage / profiling
+*.test
+*.out
+*.prof
+coverage*.out
+*.log
+
+# Common build dirs (если появятся)
+bin/
+dist/
+tmp/
+
+# Go workspace (если появится)
+go.work
+go.work.sum
+
+
+# --- IDEs ---
+# JetBrains (GoLand/IntelliJ)
+.idea/
+*.iml
+
+# VS Code (на всякий)
+.vscode/
+
+# Vim/Swap
+*.swp
+
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+
+
+# --- Secrets / local env ---
+.env
+.env.*
+*.local
+*.pem
+*.key

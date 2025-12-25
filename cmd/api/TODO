@@ -1,0 +1,71 @@
+1. Использование загрузки конфига и пробрасывание его вниз по дереву.
+type HTTPConfig struct {
+    Addr              string
+    ReadHeaderTimeout time.Duration
+    ReadTimeout       time.Duration
+    WriteTimeout      time.Duration
+    IdleTimeout       time.Duration
+}
+
+type DBConfig struct {
+    DSN string
+}
+
+type Config struct {
+    HTTP HTTPConfig
+    DB   DBConfig
+}
+
+Пишем Load() (или LoadFromEnv()), который:
+
+задаёт дефолты в коде;
+
+поверх читает переменные окружения через os.Getenv и подставляет их, если нужны.
+
+Пример:
+
+func Load() (Config, error) {
+    cfg := Config{
+        HTTP: HTTPConfig{
+            Addr:              getEnv("HTTP_ADDR", ":8080"),
+            ReadHeaderTimeout: 5 * time.Second,
+            ReadTimeout:       10 * time.Second,
+            WriteTimeout:      15 * time.Second,
+            IdleTimeout:       60 * time.Second,
+        },
+        DB: DBConfig{
+            DSN: os.Getenv("DB_DSN"),
+        },
+    }
+    return cfg, nil
+}
+Такой подход хорошо сочетается с 12-factor: то, что меняется между окружениями (порт, DSN), — в ENV; инженерные константы (таймауты) можно оставить в коде.
+
+В run() один раз делаем:
+
+cfg, err := config.Load()
+if err != nil { return err }
+
+
+Дальше явно прокидываем нужные куски через DI:
+NewDB(cfg.DB)
+NewAPIServer(cfg.HTTP, router, readiness) и т.д.
+Компоненты внутри не делают os.Getenv, не импортируют глобальный config.Cfg — они получают свой конфиг через конструктор.
+
+2.Логгер использовать везде в приложении вместо fmt.Println / fmt.Printf
+В учебных местах/временами для дебага — норм.
+В постоянном «боевом» коде сервера → лучше заменить на логгер.
+Логгер как зависимость
+Создаёшь *slog.Logger в run().
+Прокидываешь его в NewUserService, NewUserHandler, NewAPIServer.
+Внутри пакетов — только s.log.Info/Error/..., без fmt.Println и глобалок.
+Выбор логгера
+Ты ещё учишься и пишешь типичный HTTP-сервис → бери log/slog.
+В будущем, если окажешься в компании на zap или zerolog, знания по DI и принципам останутся те же, просто API будут другие.
+
+
+
+3) 	//Использовать Chi вместо стандартного ServeMux
+
+4) Применить подход при котором обработка ошибок из Хендлера уедет в отдельный middleware , чтобы было централизованная обработка ошибок и сделать хендлер более чистым , это подъход Senior
+5)	//Использовать Chi вместо стандартного ServeMux
