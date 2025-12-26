@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"os/signal"
+	"pet-study/internal/middleware"
 	"syscall"
 
 	"github.com/go-playground/validator/v10"
@@ -18,19 +19,13 @@ import (
 
 func main() {
 	if err := run(); err != nil {
-		// log.Fatal уже завершает процесс через os.Exit(1)
 		log.Fatal(err)
 	}
 }
 
-// run — composition root: создаёт все зависимости, root-context
-// и передаёт их вниз.
 func run() error {
-	// Root-контекст приложения с отменой по SIGINT/SIGTERM.
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-
-	// --- Сборка зависимостей (DI) ---
 
 	userRepository := userrepo.NewMemoryUserRepository()
 	userService := service.NewUserService(userRepository)
@@ -40,12 +35,11 @@ func run() error {
 
 	userHandler := routes.NewUserHandler(userService, v)
 	userRouter := router.NewRouter(userHandler)
+	userRouter = middleware.MiddleWareLogger(middleware.MiddleWareRecover(userRouter))
 	healthRouter := router.NewHealthRouter(readiness)
 	rootRouter := router.NewRoot(userRouter, healthRouter)
 
 	server := api.NewAPIServer(":8080", rootRouter, readiness)
-
-	// ---- Запуск сервера ----
 
 	return server.Run(ctx)
 }
