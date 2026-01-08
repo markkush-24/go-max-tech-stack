@@ -117,6 +117,11 @@ func (h *UsersHandler) create(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	if details := httputils.ValidateCreateUserInput(in); len(details) > 0 {
+		_ = httputils.WriteError(w, http.StatusUnprocessableEntity,
+			"validation_error", "validation failed", details...)
+		return
+	}
 
 	u, err := h.service.CreateUser(r.Context(), &in)
 	if err != nil {
@@ -150,7 +155,6 @@ func (h *UsersHandler) getByID(w http.ResponseWriter, r *http.Request, id int) {
 }
 
 func (h *UsersHandler) list(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
 	users, err := h.service.GetAllUsers(r.Context())
 	if err != nil {
 		_ = httputils.WriteError(w, http.StatusInternalServerError, "internal_error", "internal server error")

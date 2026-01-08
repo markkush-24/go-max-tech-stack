@@ -8,6 +8,7 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"pet-study/internal/entity"
 	"regexp"
 	"strings"
 )
@@ -120,4 +121,58 @@ func WriteError(w http.ResponseWriter, status int, code, message string, details
 	body.Error.Message = message
 	body.Error.Details = details
 	return WriteJSON(w, status, body)
+}
+
+func ValidateCreateUserInput(in entity.CreateUserInput) []ErrorDetail {
+	var ed []ErrorDetail
+
+	if in.Age < 0 {
+		ed = append(ed, ErrorDetail{Field: "age", Rule: "must be >= 0"})
+	}
+
+	if strings.TrimSpace(in.Name) == "" {
+		ed = append(ed, ErrorDetail{Field: "name", Rule: "must not be empty"})
+	}
+
+	email := strings.ToLower(strings.TrimSpace(in.Email))
+	if email == "" {
+		ed = append(ed, ErrorDetail{Field: "email", Rule: "must not be empty"})
+	} else if !isLikelyEmail(email) {
+		ed = append(ed, ErrorDetail{Field: "email", Rule: "email must be valid"})
+	}
+
+	return ed
+}
+
+func isLikelyEmail(s string) bool {
+	// ожидаем уже TrimSpace + ToLower снаружи, но можно и тут
+	if s == "" {
+		return false
+	}
+
+	at := strings.IndexByte(s, '@')
+	if at <= 0 || at == len(s)-1 { // '@' не может быть первым или последним
+		return false
+	}
+
+	// должен быть ровно один '@'
+	if strings.IndexByte(s[at+1:], '@') != -1 {
+		return false
+	}
+
+	local := s[:at]
+	domain := s[at+1:]
+
+	// local и domain не пустые уже гарантированы at-check'ом, но оставим явно
+	if local == "" || domain == "" {
+		return false
+	}
+
+	// минимальная проверка домена: хотя бы одна точка и не в начале/конце домена
+	dot := strings.LastIndexByte(domain, '.')
+	if dot <= 0 || dot == len(domain)-1 {
+		return false
+	}
+
+	return true
 }

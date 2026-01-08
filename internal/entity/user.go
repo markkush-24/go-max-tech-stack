@@ -12,7 +12,7 @@ type UserDTO struct {
 	Email string `json:"email"`
 }
 type CreateUserInput struct {
-	Name  string `json:"name"  validate:"required"`
-	Age   int    `json:"age,omitempty" validate:"gte=0,lte=120"`
-	Email string `json:"email" validate:"required,email"`
+	Name  string `json:"name"`
+	Age   int    `json:"age,omitempty"`
+	Email string `json:"email"`
 }
