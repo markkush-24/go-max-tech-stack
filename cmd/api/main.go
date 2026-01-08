@@ -7,8 +7,6 @@ import (
 	"pet-study/internal/middleware"
 	"syscall"
 
-	"github.com/go-playground/validator/v10"
-
 	"pet-study/internal/api"
 	"pet-study/internal/health"
 	"pet-study/internal/router"
@@ -29,11 +27,10 @@ func run() error {
 
 	userRepository := userrepo.NewMemoryUserRepository()
 	userService := service.NewUserService(userRepository)
-	v := validator.New()
 
 	readiness := health.NewReadiness()
 
-	userHandler := routes.NewUserHandler(userService, v)
+	userHandler := routes.NewUserHandler(userService)
 	userRouter := router.NewRouter(userHandler)
 	userRouter = middleware.MiddleWareLogger(middleware.MiddleWareRecover(userRouter))
 	healthRouter := router.NewHealthRouter(readiness)

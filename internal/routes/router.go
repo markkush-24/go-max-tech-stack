@@ -3,7 +3,6 @@ package routes
 import (
 	"errors"
 	"fmt"
-	"github.com/go-playground/validator/v10"
 	"net/http"
 	"pet-study/internal/entity"
 	"pet-study/internal/httputils"
@@ -16,12 +15,11 @@ const prefixItems = "/api/v1/users/"
 const prefixCollections = "/api/v1/users"
 
 type UsersHandler struct {
-	service   *service.UserService
-	validator *validator.Validate
+	service *service.UserService
 }
 
-func NewUserHandler(service *service.UserService, validator *validator.Validate) *UsersHandler {
-	return &UsersHandler{service: service, validator: validator}
+func NewUserHandler(service *service.UserService) *UsersHandler {
+	return &UsersHandler{service: service}
 }
 
 func (h *UsersHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -64,30 +62,59 @@ func (h *UsersHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *UsersHandler) create(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
+	httputils.LimitBody(w, r, 64<<10)
 	var in entity.CreateUserInput
-	if ct := r.Header.Get("Content-Type"); ct != "" && !strings.HasPrefix(ct, "application/json") {
-		_ = httputils.WriteError(w, http.StatusUnsupportedMediaType, "unsupported_media_type", "Content-Type must be application/json")
+
+	if err := httputils.RequireJSONContentType(r); err != nil {
+		_ = httputils.WriteError(w, http.StatusUnsupportedMediaType,
+			"unsupported_media_type", "Content-Type must be application/json")
 		return
 	}
-	if err := httputils.ParseJSON(r, &in); err != nil {
+
+	if err := httputils.ParseJSON(r.Body, &in); err != nil {
 		var mbe *http.MaxBytesError
 		if errors.As(err, &mbe) {
 			_ = httputils.WriteError(w, http.StatusRequestEntityTooLarge, "request_too_large", "request body too large")
 			return
 		}
 
-		_ = httputils.WriteError(w, http.StatusBadRequest, "bad_request", err.Error())
-		return
-	}
+		// JSON decode errors -> 400 with stable messages
+		var jre *httputils.JSONRequestError
+		_ = errors.As(err, &jre) // если не распарсится — jre останется nil
 
-	if err := h.validator.Struct(in); err != nil {
-		ves := err.(validator.ValidationErrors)
-		var b strings.Builder
-		for _, e := range ves {
-			fmt.Fprintf(&b, "%s: %s; ", e.Field(), e.Tag())
+		switch {
+		case errors.Is(err, httputils.ErrJSONEmptyBody):
+			_ = httputils.WriteError(w, http.StatusBadRequest,
+				"empty_body", "request body must not be empty")
+
+		case errors.Is(err, httputils.ErrJSONBadSyntax):
+			_ = httputils.WriteError(w, http.StatusBadRequest,
+				"invalid_json", "malformed JSON")
+
+		case errors.Is(err, httputils.ErrJSONUnknownField):
+			msg := "unknown field"
+			if jre != nil && jre.Field != "" {
+				msg = fmt.Sprintf("unknown field %q", jre.Field)
+			}
+			_ = httputils.WriteError(w, http.StatusBadRequest,
+				"unknown_field", msg)
+
+		case errors.Is(err, httputils.ErrJSONTypeMismatch):
+			msg := "invalid JSON type"
+			if jre != nil && jre.Field != "" {
+				msg = fmt.Sprintf("invalid JSON type for field %q", jre.Field)
+			}
+			_ = httputils.WriteError(w, http.StatusBadRequest,
+				"type_mismatch", msg)
+
+		case errors.Is(err, httputils.ErrJSONTrailingData):
+			_ = httputils.WriteError(w, http.StatusBadRequest,
+				"trailing_data", "request body must contain a single JSON value")
+
+		default:
+			_ = httputils.WriteError(w, http.StatusBadRequest,
+				"bad_request", "invalid request body")
 		}
-		httputils.WriteError(w, http.StatusUnprocessableEntity, "validation_error", strings.TrimSpace(b.String()))
 		return
 	}
 
@@ -108,7 +135,12 @@ func (h *UsersHandler) create(w http.ResponseWriter, r *http.Request) {
 func (h *UsersHandler) getByID(w http.ResponseWriter, r *http.Request, id int) {
 	u, err := h.service.GetByID(r.Context(), id)
 	if err != nil {
-		_ = httputils.WriteError(w, httputils.StatusFor(err), "not_found", "user not found")
+		if errors.Is(err, service.ErrNotFound) {
+			_ = httputils.WriteError(w, http.StatusNotFound, "not_found", "user not found")
+			return
+		}
+
+		_ = httputils.WriteError(w, http.StatusInternalServerError, "internal_error", "internal server error")
 		return
 	}
 

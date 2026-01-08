@@ -69,3 +69,39 @@ NewAPIServer(cfg.HTTP, router, readiness) и т.д.
 
 4) Применить подход при котором обработка ошибок из Хендлера уедет в отдельный middleware , чтобы было централизованная обработка ошибок и сделать хендлер более чистым , это подъход Senior
 5)	//Использовать Chi вместо стандартного ServeMux
+6)делаем Problem+JSON дефолтом для ошибок.
+
+  Что это значит “по факту”
+
+  Все error-ответы → Content-Type: application/problem+json
+
+  Тело ошибки → верхнеуровневые поля RFC 7807:
+
+  type, title, status, detail, instance
+
+  Плюс ваши extensions (очень практично):
+
+  code (стабильный)
+
+  errors/details (валидация по полям)
+
+  X-Request-ID (или trace-id) → в заголовок и лог
+
+  Минимальный “маппинг” твоего текущего формата
+
+  message → чаще всего detail
+
+  code → extension code
+
+  details[] → extension errors или details
+
+  status → и HTTP status, и поле status в body
+
+  type → URI на доку по этой проблеме
+
+  instance → request-id или URI случая (или оба: instance + header)
+
+  7)Переписать Servemux на каноничный вариант 1.22+  сейчас он устаревший 
+  mux.HandleFunc("GET /api/v1/users", h.list)
+  mux.HandleFunc("POST /api/v1/users", h.create)
+  mux.HandleFunc("GET /api/v1/users/{id}", h.getByID) // id берёшь через r.PathValue("id")
