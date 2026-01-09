@@ -3,6 +3,7 @@ package middleware
 import (
 	"log"
 	"net/http"
+	"pet-study/internal/httputils"
 	"time"
 )
 
@@ -47,7 +48,10 @@ func MiddleWareRecover(next http.Handler) http.Handler {
 		defer func() {
 			if err := recover(); err != nil {
 				log.Printf("Catch panic! :%v", err)
-				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+				_ = httputils.WriteProblem(w, r, httputils.Problem{
+					Status: http.StatusInternalServerError,
+					Detail: "internal server error",
+				})
 			}
 		}()
 		next.ServeHTTP(w, r)

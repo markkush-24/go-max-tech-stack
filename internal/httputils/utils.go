@@ -107,22 +107,6 @@ type ErrorDetail struct {
 	Rule  string `json:"rule,omitempty"`
 }
 
-type ErrorBody struct {
-	Error struct {
-		Code    string        `json:"code"`
-		Message string        `json:"message"`
-		Details []ErrorDetail `json:"details,omitempty"`
-	} `json:"error"`
-}
-
-func WriteError(w http.ResponseWriter, status int, code, message string, details ...ErrorDetail) error {
-	var body ErrorBody
-	body.Error.Code = code
-	body.Error.Message = message
-	body.Error.Details = details
-	return WriteJSON(w, status, body)
-}
-
 func ValidateCreateUserInput(in entity.CreateUserInput) []ErrorDetail {
 	var ed []ErrorDetail
 

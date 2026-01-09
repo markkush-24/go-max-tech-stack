@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"os/signal"
+	"pet-study/internal/httputils"
 	"pet-study/internal/middleware"
 	"syscall"
 
@@ -31,7 +32,7 @@ func run() error {
 	readiness := health.NewReadiness()
 
 	userHandler := routes.NewUserHandler(userService)
-	userRouter := router.NewRouter(userHandler)
+	userRouter := router.NewRouter(httputils.AppHandler(userHandler.Handle))
 	userRouter = middleware.MiddleWareLogger(middleware.MiddleWareRecover(userRouter))
 	healthRouter := router.NewHealthRouter(readiness)
 	rootRouter := router.NewRoot(userRouter, healthRouter)
