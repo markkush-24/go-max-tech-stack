@@ -6,13 +6,6 @@ import (
 	"pet-study/internal/entity"
 	"pet-study/internal/httputils"
 	"pet-study/internal/service"
-	"strconv"
-	"strings"
-)
-
-const (
-	prefixItems       = "/api/v1/users/"
-	prefixCollections = "/api/v1/users"
 )
 
 type UsersHandler struct {
@@ -23,41 +16,7 @@ func NewUserHandler(service *service.UserService) *UsersHandler {
 	return &UsersHandler{service: service}
 }
 
-func (h *UsersHandler) Handle(w http.ResponseWriter, r *http.Request) error {
-	if strings.HasPrefix(r.URL.Path, prefixItems) {
-		idStr := strings.TrimPrefix(r.URL.Path, prefixItems)
-		if idStr == "" || strings.Contains(idStr, "/") {
-			return service.ErrNotFound
-		}
-
-		id, err := strconv.Atoi(idStr)
-		if err != nil || id <= 0 {
-			return &httputils.BadRequestError{Detail: "id must be a positive integer"}
-		}
-
-		switch r.Method {
-		case http.MethodGet:
-			return h.getByID(w, r, id)
-		default:
-			return &httputils.MethodNotAllowedError{Allow: "GET"}
-		}
-	}
-
-	if r.URL.Path != prefixCollections {
-		return service.ErrNotFound
-	}
-
-	switch r.Method {
-	case http.MethodGet:
-		return h.list(w, r)
-	case http.MethodPost:
-		return h.create(w, r)
-	default:
-		return &httputils.MethodNotAllowedError{Allow: "GET, POST"}
-	}
-}
-
-func (h *UsersHandler) create(w http.ResponseWriter, r *http.Request) error {
+func (h *UsersHandler) Create(w http.ResponseWriter, r *http.Request) error {
 	httputils.LimitBody(w, r, 64<<10)
 
 	if err := httputils.RequireJSONContentType(r); err != nil {
@@ -84,7 +43,7 @@ func (h *UsersHandler) create(w http.ResponseWriter, r *http.Request) error {
 	return httputils.WriteJSON(w, http.StatusCreated, u)
 }
 
-func (h *UsersHandler) getByID(w http.ResponseWriter, r *http.Request, id int) error {
+func (h *UsersHandler) GetByID(w http.ResponseWriter, r *http.Request, id int) error {
 	u, err := h.service.GetByID(r.Context(), id)
 	if err != nil {
 		return err
@@ -97,7 +56,7 @@ func (h *UsersHandler) getByID(w http.ResponseWriter, r *http.Request, id int) e
 	})
 }
 
-func (h *UsersHandler) list(w http.ResponseWriter, r *http.Request) error {
+func (h *UsersHandler) List(w http.ResponseWriter, r *http.Request) error {
 	users, err := h.service.GetAllUsers(r.Context())
 	if err != nil {
 		return err
