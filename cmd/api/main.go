@@ -31,7 +31,8 @@ func run() error {
 	readiness := health.NewReadiness()
 
 	userHandler := routes.NewUserHandler(userService)
-	userRouter := router.NewRouter(userHandler)
+	userHandlerV2 := routes.NewUserV2Handler(userService)
+	userRouter := router.NewRouter(userHandler, userHandlerV2)
 	userRouter = middleware.MiddleWareLogger(middleware.MiddleWareRecover(userRouter))
 	healthRouter := router.NewHealthRouter(readiness)
 	rootRouter := router.NewRoot(userRouter, healthRouter)

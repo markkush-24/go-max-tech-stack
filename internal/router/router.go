@@ -6,11 +6,14 @@ import (
 	"pet-study/internal/httputils"
 )
 
-func NewRouter(users httpapi.UsersAPI) http.Handler {
+func NewRouter(users httpapi.UsersAPI, usersV2 httpapi.UsersAPI) http.Handler {
 	mux := http.NewServeMux()
 
 	mux.Handle("GET /api/v1/users", httputils.AppHandler(users.List))
 	mux.Handle("POST /api/v1/users", httputils.AppHandler(users.Create))
+
+	mux.Handle("GET /api/v2/users", httputils.AppHandler(usersV2.List))
+	mux.Handle("POST /api/v2/users", httputils.AppHandler(usersV2.Create))
 
 	getByID := func(w http.ResponseWriter, r *http.Request) error {
 		idStr := r.PathValue("id")
@@ -39,6 +42,11 @@ func NewRouter(users httpapi.UsersAPI) http.Handler {
 		if r.Method == http.MethodPost {
 			return users.Create(w, r)
 		}
+		return &httputils.MethodNotAllowedError{Allow: "GET, POST"}
+	}))
+
+	// 405 v2 (только на коллекцию, без subtree!)
+	mux.Handle("/api/v2/users", httputils.AppHandler(func(w http.ResponseWriter, r *http.Request) error {
 		return &httputils.MethodNotAllowedError{Allow: "GET, POST"}
 	}))
 

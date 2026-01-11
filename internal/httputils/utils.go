@@ -128,6 +128,27 @@ func ValidateCreateUserInput(in entity.CreateUserInput) []ErrorDetail {
 	return ed
 }
 
+func ValidateCreateUserInputV2(in entity.CreateUserInputV2) []ErrorDetail {
+	var ed []ErrorDetail
+
+	if in.Age < 0 {
+		ed = append(ed, ErrorDetail{Field: "age", Rule: "must be >= 0"})
+	}
+
+	if strings.TrimSpace(in.FullName) == "" {
+		ed = append(ed, ErrorDetail{Field: "full_name", Rule: "must not be empty"})
+	}
+
+	email := strings.ToLower(strings.TrimSpace(in.Email))
+	if email == "" {
+		ed = append(ed, ErrorDetail{Field: "email", Rule: "must not be empty"})
+	} else if !isLikelyEmail(email) {
+		ed = append(ed, ErrorDetail{Field: "email", Rule: "email must be valid"})
+	}
+
+	return ed
+}
+
 func isLikelyEmail(s string) bool {
 	// ожидаем уже TrimSpace + ToLower снаружи, но можно и тут
 	if s == "" {
