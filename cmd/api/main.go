@@ -8,6 +8,7 @@ import (
 	"syscall"
 
 	"pet-study/internal/api"
+	"pet-study/internal/config"
 	"pet-study/internal/health"
 	"pet-study/internal/router"
 	"pet-study/internal/routes"
@@ -28,6 +29,11 @@ func run() error {
 	userRepository := userrepo.NewMemoryUserRepository()
 	userService := service.NewUserService(userRepository)
 
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+
 	readiness := health.NewReadiness()
 
 	userHandler := routes.NewUserHandler(userService)
@@ -37,7 +43,7 @@ func run() error {
 	healthRouter := router.NewHealthRouter(readiness)
 	rootRouter := router.NewRoot(userRouter, healthRouter)
 
-	server := api.NewAPIServer(":8080", rootRouter, readiness)
+	server := api.NewAPIServer(cfg, rootRouter, readiness)
 
 	return server.Run(ctx)
 }

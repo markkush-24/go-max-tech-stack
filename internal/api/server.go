@@ -4,19 +4,20 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"pet-study/internal/config"
 	"pet-study/internal/health"
 	"time"
 )
 
 type APIServer struct {
-	addr      string
+	config    config.Config
 	router    http.Handler
 	readiness *health.Readiness
 }
 
-func NewAPIServer(addr string, router http.Handler, readiness *health.Readiness) *APIServer {
+func NewAPIServer(config config.Config, router http.Handler, readiness *health.Readiness) *APIServer {
 	return &APIServer{
-		addr:      addr,
+		config:    config,
 		router:    router,
 		readiness: readiness,
 	}
@@ -26,19 +27,19 @@ func NewAPIServer(addr string, router http.Handler, readiness *health.Readiness)
 // Контекст сигналов и общий lifecycle приходят "сверху".
 func (s *APIServer) Run(ctx context.Context) error {
 	srv := &http.Server{
-		Addr:              s.addr,
+		Addr:              s.config.HTTP.Addr,
 		Handler:           s.router,
-		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       10 * time.Second,
-		WriteTimeout:      15 * time.Second,
-		IdleTimeout:       60 * time.Second,
+		ReadHeaderTimeout: s.config.HTTP.ReadHeaderTimeout,
+		ReadTimeout:       s.config.HTTP.ReadTimeout,
+		WriteTimeout:      s.config.HTTP.WriteTimeout,
+		IdleTimeout:       s.config.HTTP.IdleTimeout,
 	}
 
 	errCh := make(chan error, 1)
 
 	// Стартуем сервер в отдельной горутине.
 	go func() {
-		log.Printf("HTTP server listening on %s", s.addr)
+		log.Printf("HTTP server listening on %s", s.config.HTTP.Addr)
 
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			// Ошибку отдаём наверх через канал — без os.Exit/log.Fatalf
