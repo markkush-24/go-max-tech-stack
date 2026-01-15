@@ -1,23 +1,35 @@
 package health
 
-import "sync/atomic"
+import (
+	"context"
+	"sync/atomic"
+)
 
-type Readiness struct {
-	v atomic.Bool
+type CheckFunc func(ctx context.Context) error
+
+type Check struct {
+	Name string
+	Fn   CheckFunc
 }
 
-func NewReadiness() *Readiness {
-	return &Readiness{v: atomic.Bool{}}
+type Readiness struct {
+	ready  atomic.Bool
+	checks []Check
+}
+
+func NewReadiness(checks ...Check) *Readiness {
+	r := &Readiness{checks: checks}
+	return r
 }
 
 func (r *Readiness) SetReady() {
-	r.v.Store(true)
+	r.ready.Store(true)
 }
 
 func (r *Readiness) SetNotReady() {
-	r.v.Store(false)
+	r.ready.Store(false)
 }
 
 func (r *Readiness) IsReady() bool {
-	return r.v.Load()
+	return r.ready.Load()
 }

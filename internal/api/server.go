@@ -2,11 +2,11 @@ package api
 
 import (
 	"context"
+	"errors"
 	"log"
 	"net/http"
 	"pet-study/internal/config"
 	"pet-study/internal/health"
-	"time"
 )
 
 type APIServer struct {
@@ -29,10 +29,11 @@ func (s *APIServer) Run(ctx context.Context) error {
 	srv := &http.Server{
 		Addr:              s.config.HTTP.Addr,
 		Handler:           s.router,
-		ReadHeaderTimeout: s.config.HTTP.ReadHeaderTimeout,
+		ReadHeaderTimeout: s.config.HTTP.ReadHeaderTimeout, // caps time to read request headers (slowloris mitigation)
 		ReadTimeout:       s.config.HTTP.ReadTimeout,
 		WriteTimeout:      s.config.HTTP.WriteTimeout,
 		IdleTimeout:       s.config.HTTP.IdleTimeout,
+		MaxHeaderBytes:    s.config.HTTP.MaxHeaderBytes,
 	}
 
 	errCh := make(chan error, 1)
@@ -58,21 +59,31 @@ func (s *APIServer) Run(ctx context.Context) error {
 		s.readiness.SetNotReady()
 		log.Println("Set ready false")
 
-		// ВАЖНО: таймаут для Shutdown — на отдельном контексте,
-		// а не на уже отменённом ctx.
-		sdCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		sdCtx, cancel := context.WithTimeout(context.Background(), s.config.HTTP.ShutdownTimeout)
 		defer cancel()
 
 		if err := srv.Shutdown(sdCtx); err != nil {
-			log.Printf("graceful shutdown failed: %v", err)
+			if errors.Is(err, context.DeadlineExceeded) {
+				log.Printf("shutdown timeout (%s), forcing close", s.config.HTTP.ShutdownTimeout)
+
+				// fallback: жёстко закрываем
+				if closeErr := srv.Close(); closeErr != nil {
+					return errors.Join(err, closeErr)
+				}
+
+				// best-effort hard close, чтобы не оставлять хвосты
+				_ = srv.Close()
+				<-errCh
+				return nil
+			}
+
 			return err
 		}
 
-		log.Println("server stopped cleanly")
+		<-errCh
 		return nil
 
 	case err := <-errCh:
-		// Если канал закрылся без ошибки — просто выходим.
 		if err == nil {
 			log.Println("server stopped")
 			return nil
