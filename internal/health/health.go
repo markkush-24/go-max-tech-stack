@@ -18,8 +18,8 @@ type Readiness struct {
 }
 
 func NewReadiness(checks ...Check) *Readiness {
-	r := &Readiness{checks: checks}
-	return r
+	cp := append([]Check(nil), checks...)
+	return &Readiness{checks: cp}
 }
 
 func (r *Readiness) SetReady() {

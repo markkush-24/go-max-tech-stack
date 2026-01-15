@@ -23,6 +23,10 @@ func NewMemoryUserRepository() *MemoryUserRepository {
 	}
 }
 
+func (r *MemoryUserRepository) Ping(ctx context.Context) error {
+	return ctx.Err()
+}
+
 func (r *MemoryUserRepository) GetAll(ctx context.Context) ([]*entity.User, error) {
 	r.mux.RLock()
 	defer r.mux.RUnlock()

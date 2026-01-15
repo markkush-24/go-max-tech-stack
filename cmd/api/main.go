@@ -34,8 +34,10 @@ func run() error {
 	if err != nil {
 		return err
 	}
-
-	readiness := health.NewReadiness()
+	readiness := health.NewReadiness(health.Check{
+		Name: "repo",
+		Fn:   userRepository.Ping,
+	})
 
 	userHandler := routes.NewUserHandler(userService)
 	userHandlerV2 := routes.NewUserV2Handler(userService)

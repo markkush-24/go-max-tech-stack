@@ -3,22 +3,12 @@ package router
 import (
 	"net/http"
 	"pet-study/internal/health"
-	"pet-study/internal/httputils"
+	"time"
 )
 
 func NewHealthRouter(readiness *health.Readiness) http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/livez", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Cache-Control", "no-store")
-		_ = httputils.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
-	})
-	mux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Cache-Control", "no-store")
-		if !readiness.IsReady() {
-			_ = httputils.WriteJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "not_ready"})
-			return
-		}
-		_ = httputils.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
-	})
+	mux.Handle("GET /livez", health.LivenessHandler())
+	mux.Handle("GET /readyz", health.ReadinessHandler(readiness, 200*time.Millisecond))
 	return mux
 }
