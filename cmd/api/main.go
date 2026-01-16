@@ -11,6 +11,7 @@ import (
 	"pet-study/internal/api"
 	"pet-study/internal/config"
 	"pet-study/internal/health"
+	"pet-study/internal/requestid"
 	"pet-study/internal/router"
 	"pet-study/internal/routes"
 	"pet-study/internal/service"
@@ -42,11 +43,16 @@ func run() error {
 	userHandler := routes.NewUserHandler(userService)
 	userHandlerV2 := routes.NewUserV2Handler(userService)
 	userRouter := router.NewRouter(userHandler, userHandlerV2)
-	userRouter = middleware.MiddleWareLogger(middleware.MiddleWareRecover(userRouter))
+
+	userRouter = middleware.Recover(userRouter)
+	userRouter = middleware.Logger(userRouter)
+
 	healthRouter := router.NewHealthRouter(readiness)
 	rootRouter := router.NewRoot(userRouter, healthRouter)
 
-	server := api.NewAPIServer(cfg, rootRouter, readiness)
+	handler := requestid.RequestIDMiddleware(rootRouter)
+
+	server := api.NewAPIServer(cfg, handler, readiness)
 
 	return server.Run(ctx)
 }

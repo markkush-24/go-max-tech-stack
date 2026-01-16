@@ -3,6 +3,7 @@ package httputils
 import (
 	"encoding/json"
 	"net/http"
+	"pet-study/internal/requestid"
 )
 
 type Problem struct {
@@ -11,6 +12,7 @@ type Problem struct {
 	Status        int            `json:"status"`
 	Detail        string         `json:"detail,omitempty"`
 	Instance      string         `json:"instance,omitempty"`
+	RequestID     string         `json:"request_id,omitempty"`
 	InvalidParams []InvalidParam `json:"invalid_params,omitempty"`
 }
 
@@ -31,6 +33,17 @@ func WriteProblem(w http.ResponseWriter, r *http.Request, p Problem) error {
 	}
 	if p.Instance == "" && r != nil {
 		p.Instance = r.URL.Path
+	}
+
+	if p.RequestID == "" && r != nil {
+		if rid, ok := requestid.RequestID(r.Context()); ok {
+			p.RequestID = rid
+		}
+	}
+
+	// гарантируем request-id в response header даже для ошибок
+	if p.RequestID != "" && w.Header().Get(requestid.HeaderName) == "" {
+		w.Header().Set(requestid.HeaderName, p.RequestID)
 	}
 
 	w.Header().Set("Content-Type", "application/problem+json; charset=utf-8")
