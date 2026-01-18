@@ -31,19 +31,26 @@ func (w *statusRecorder) Write(p []byte) (int, error) {
 func Logger(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
+
+		sr, ok := w.(*statusRecorder)
+		if !ok {
+			sr = newStatusRecorder(w)
+			w = sr
+		}
+
+		next.ServeHTTP(w, r)
+
 		rid, _ := requestid.RequestID(r.Context())
-		sr := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
-		defer func() {
-			log.Printf(
-				"[LOG] Method -- {%s},"+
-					" UrlPath -- {%s},"+
-					" RequestID -- {%s},"+
-					" Status -- {%d},"+
-					" Bytes -- {%d} ,"+
-					" TimeSince -- {%v}",
-				r.Method, r.URL.Path, rid, sr.status, sr.bytes, time.Since(start))
-		}()
-		next.ServeHTTP(sr, r)
+		log.Printf(
+			"[LOG] Method -- {%s},"+
+				" UrlPath -- {%s},"+
+				" Pattern -- {%s},"+
+				" Status -- {%d},"+
+				" Bytes -- {%d} ,"+
+				" TimeSince -- {%v},"+
+				" RequestID=%s",
+			r.Method, r.URL.Path, r.Pattern, sr.Status(), sr.Bytes(), time.Since(start), rid,
+		)
 	})
 }
 

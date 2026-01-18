@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"pet-study/internal/metrics"
 	"pet-study/internal/middleware"
 	"syscall"
 
@@ -28,31 +29,39 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	userRepository := userrepo.NewMemoryUserRepository()
-	userService := service.NewUserService(userRepository)
-
 	cfg, err := config.Load()
 	if err != nil {
 		return err
 	}
+
+	// Dependencies
+	userRepository := userrepo.NewMemoryUserRepository()
+	userService := service.NewUserService(userRepository)
+
 	readiness := health.NewReadiness(health.Check{
 		Name: "repo",
 		Fn:   userRepository.Ping,
 	})
 
+	// Routers
 	userHandler := routes.NewUserHandler(userService)
 	userHandlerV2 := routes.NewUserV2Handler(userService)
 	userRouter := router.NewRouter(userHandler, userHandlerV2)
 
-	userRouter = middleware.Recover(userRouter)
-	userRouter = middleware.Logger(userRouter)
-
 	healthRouter := router.NewHealthRouter(readiness)
 	rootRouter := router.NewRoot(userRouter, healthRouter)
 
-	handler := requestid.RequestIDMiddleware(rootRouter)
+	// Metrics registry
+	m := metrics.DefaultHTTP()
+
+	// Middleware chain (outer -> inner):
+	// RequestID -> Metrics -> Logger -> Recover -> Router
+	handler := rootRouter
+	handler = middleware.Recover(handler)
+	handler = middleware.Logger(handler)
+	handler = middleware.Metrics(m)(handler)
+	handler = requestid.RequestIDMiddleware(handler)
 
 	server := api.NewAPIServer(cfg, handler, readiness)
-
 	return server.Run(ctx)
 }
