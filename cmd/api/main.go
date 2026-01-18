@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"pet-study/internal/metrics"
@@ -43,13 +44,18 @@ func run() error {
 		Fn:   userRepository.Ping,
 	})
 
+	var debugRouter http.Handler
+	if cfg.HTTP.Debug {
+		debugRouter = router.NewDebugRouter()
+	}
+
 	// Routers
 	userHandler := routes.NewUserHandler(userService)
 	userHandlerV2 := routes.NewUserV2Handler(userService)
 	userRouter := router.NewRouter(userHandler, userHandlerV2)
 
 	healthRouter := router.NewHealthRouter(readiness)
-	rootRouter := router.NewRoot(userRouter, healthRouter)
+	rootRouter := router.NewRoot(userRouter, healthRouter, debugRouter)
 
 	// Metrics registry
 	m := metrics.DefaultHTTP()
@@ -63,5 +69,6 @@ func run() error {
 	handler = requestid.RequestIDMiddleware(handler)
 
 	server := api.NewAPIServer(cfg, handler, readiness)
+	log.Printf("config: addr=%s debug=%v", cfg.HTTP.Addr, cfg.HTTP.Debug)
 	return server.Run(ctx)
 }
