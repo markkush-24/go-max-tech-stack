@@ -66,16 +66,17 @@ func (s *APIServer) Run(ctx context.Context) error {
 			if errors.Is(err, context.DeadlineExceeded) {
 				log.Printf("shutdown timeout (%s), forcing close", s.config.HTTP.ShutdownTimeout)
 
+				<-errCh
 				// fallback: жёстко закрываем
 				if closeErr := srv.Close(); closeErr != nil {
 					return errors.Join(err, closeErr)
 				}
-
-				// best-effort hard close, чтобы не оставлять хвосты
-				_ = srv.Close()
-				<-errCh
-				return nil
+				return nil // политика: таймаут — не “ошибка запуска”, мы уже остановились
 			}
+
+			// best-effort hard close, чтобы не оставлять хвосты
+			_ = srv.Close()
+			<-errCh
 
 			return err
 		}

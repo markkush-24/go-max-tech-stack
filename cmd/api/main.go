@@ -63,9 +63,10 @@ func run() error {
 	// Middleware chain (outer -> inner):
 	// RequestID -> Metrics -> Logger -> Recover -> Router
 	handler := rootRouter
-	handler = middleware.Recover(handler)
+	handler = middleware.Recover(handler) // inner: чтобы Logger/Metrics увидели 500 при panic в Router
 	handler = middleware.Logger(handler)
 	handler = middleware.Metrics(m)(handler)
+	handler = middleware.Recover(handler) // outer: ловит panic в Logger/Metrics
 	handler = requestid.RequestIDMiddleware(handler)
 
 	server := api.NewAPIServer(cfg, handler, readiness)
