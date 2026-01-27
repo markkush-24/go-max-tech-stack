@@ -84,3 +84,50 @@ func cloneJob(in entity.Job) entity.Job {
 	}
 	return out
 }
+
+func (r *MemoryJobRepository) SetRunning(ctx context.Context, id int64) error {
+	r.mux.Lock()
+	defer r.mux.Unlock()
+
+	job, ok := r.jobs[id]
+	if !ok {
+		return entity.ErrJobNotFound
+	}
+	job.Status = entity.JobRunning
+	job.Result = nil
+	job.Error = nil
+	return nil
+}
+
+func (r *MemoryJobRepository) SetSucceeded(ctx context.Context, id int64, res entity.JobResult) error {
+	r.mux.Lock()
+	defer r.mux.Unlock()
+
+	job, ok := r.jobs[id]
+	if !ok {
+		return entity.ErrJobNotFound
+	}
+	job.Status = entity.JobSucceeded
+	rr := res
+	job.Result = &rr
+	job.Error = nil
+	return nil
+}
+
+func (r *MemoryJobRepository) SetFailed(ctx context.Context, id int64, p entity.JobProblem) error {
+	r.mux.Lock()
+	defer r.mux.Unlock()
+
+	job, ok := r.jobs[id]
+	if !ok {
+		return entity.ErrJobNotFound
+	}
+	job.Status = entity.JobFailed
+	pp := p
+	if pp.InvalidParams != nil {
+		pp.InvalidParams = append([]entity.JobInvalidParam(nil), pp.InvalidParams...)
+	}
+	job.Error = &pp
+	job.Result = nil
+	return nil
+}
