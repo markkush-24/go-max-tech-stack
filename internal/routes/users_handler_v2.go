@@ -9,11 +9,12 @@ import (
 )
 
 type UsersV2Handler struct {
-	service *service.UserService
+	userService *service.UserService
+	jobService  *service.JobService
 }
 
-func NewUserV2Handler(service *service.UserService) *UsersV2Handler {
-	return &UsersV2Handler{service: service}
+func NewUserV2Handler(userService *service.UserService, jobService *service.JobService) *UsersV2Handler {
+	return &UsersV2Handler{userService: userService, jobService: jobService}
 }
 
 func (h *UsersV2Handler) Create(w http.ResponseWriter, r *http.Request) error {
@@ -34,7 +35,7 @@ func (h *UsersV2Handler) Create(w http.ResponseWriter, r *http.Request) error {
 
 	v1in := entity.MapCreateV2ToV1(in)
 
-	created, err := h.service.CreateUser(r.Context(), &v1in)
+	created, err := h.userService.CreateUser(r.Context(), &v1in)
 	if err != nil {
 		return err
 	}
@@ -44,7 +45,7 @@ func (h *UsersV2Handler) Create(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (h *UsersV2Handler) GetByID(w http.ResponseWriter, r *http.Request, id int) error {
-	u, err := h.service.GetByID(r.Context(), id)
+	u, err := h.userService.GetByID(r.Context(), id)
 	if err != nil {
 		return err
 	}
@@ -57,7 +58,7 @@ func (h *UsersV2Handler) GetByID(w http.ResponseWriter, r *http.Request, id int)
 }
 
 func (h *UsersV2Handler) List(w http.ResponseWriter, r *http.Request) error {
-	users, err := h.service.GetAllUsers(r.Context())
+	users, err := h.userService.GetAllUsers(r.Context())
 	if err != nil {
 		return err
 	}

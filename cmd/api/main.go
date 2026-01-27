@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"pet-study/internal/metrics"
 	"pet-study/internal/middleware"
+	"pet-study/internal/store/jobrepo"
 	"syscall"
 
 	"pet-study/internal/api"
@@ -37,7 +38,9 @@ func run() error {
 
 	// Dependencies
 	userRepository := userrepo.NewMemoryUserRepository()
+	jobRepository := jobrepo.NewMemoryJobRepository()
 	userService := service.NewUserService(userRepository)
+	jobService := service.NewJobService(jobRepository)
 
 	readiness := health.NewReadiness(health.Check{
 		Name: "repo",
@@ -50,8 +53,8 @@ func run() error {
 	}
 
 	// Routers
-	userHandler := routes.NewUserHandler(userService)
-	userHandlerV2 := routes.NewUserV2Handler(userService)
+	userHandler := routes.NewUserHandler(userService, jobService)
+	userHandlerV2 := routes.NewUserV2Handler(userService, jobService)
 	userRouter := router.NewRouter(userHandler, userHandlerV2)
 
 	healthRouter := router.NewHealthRouter(readiness)

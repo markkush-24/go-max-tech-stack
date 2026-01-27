@@ -9,11 +9,12 @@ import (
 )
 
 type UsersHandler struct {
-	service *service.UserService
+	userService *service.UserService
+	jobService  *service.JobService
 }
 
-func NewUserHandler(service *service.UserService) *UsersHandler {
-	return &UsersHandler{service: service}
+func NewUserHandler(userService *service.UserService, jobService *service.JobService) *UsersHandler {
+	return &UsersHandler{userService: userService, jobService: jobService}
 }
 
 func (h *UsersHandler) Create(w http.ResponseWriter, r *http.Request) error {
@@ -23,28 +24,50 @@ func (h *UsersHandler) Create(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	var in entity.CreateUserInput
-	if err := httputils.ParseJSON(r.Body, &in); err != nil {
-		return err
-	}
-
-	if details := httputils.ValidateCreateUserInput(in); len(details) > 0 {
-		return &httputils.ValidationError{
-			InvalidParams: httputils.ToInvalidParams(details),
+	qs := r.URL.Query().Get("async")
+	if qs == "1" {
+		var in entity.CreateUserInput
+		if err := httputils.ParseJSON(r.Body, &in); err != nil {
+			return err
 		}
-	}
 
-	u, err := h.service.CreateUser(r.Context(), &in)
-	if err != nil {
-		return err
-	}
+		if details := httputils.ValidateCreateUserInput(in); len(details) > 0 {
+			return &httputils.ValidationError{
+				InvalidParams: httputils.ToInvalidParams(details),
+			}
+		}
 
-	w.Header().Set("Location", fmt.Sprintf("/api/v1/users/%d", u.ID))
-	return httputils.WriteJSON(w, http.StatusCreated, u)
+		job := entity.Job{Status: entity.JobQueued}
+		if err := h.jobService.Save(r.Context(), &job); err != nil {
+			return err
+		}
+		w.Header().Set("Location", fmt.Sprintf("/api/v1/jobs/%d", job.ID))
+		return httputils.WriteJSON(w, http.StatusAccepted, job)
+	} else {
+		var in entity.CreateUserInput
+		if err := httputils.ParseJSON(r.Body, &in); err != nil {
+			return err
+		}
+
+		if details := httputils.ValidateCreateUserInput(in); len(details) > 0 {
+			return &httputils.ValidationError{
+				InvalidParams: httputils.ToInvalidParams(details),
+			}
+		}
+
+		u, err := h.userService.CreateUser(r.Context(), &in)
+		if err != nil {
+			return err
+		}
+
+		w.Header().Set("Location", fmt.Sprintf("/api/v1/users/%d", u.ID))
+		return httputils.WriteJSON(w, http.StatusCreated, u)
+	}
+	return nil
 }
 
 func (h *UsersHandler) GetByID(w http.ResponseWriter, r *http.Request, id int) error {
-	u, err := h.service.GetByID(r.Context(), id)
+	u, err := h.userService.GetByID(r.Context(), id)
 	if err != nil {
 		return err
 	}
@@ -57,7 +80,7 @@ func (h *UsersHandler) GetByID(w http.ResponseWriter, r *http.Request, id int) e
 }
 
 func (h *UsersHandler) List(w http.ResponseWriter, r *http.Request) error {
-	users, err := h.service.GetAllUsers(r.Context())
+	users, err := h.userService.GetAllUsers(r.Context())
 	if err != nil {
 		return err
 	}
