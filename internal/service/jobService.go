@@ -17,6 +17,17 @@ func (s *JobService) Save(ctx context.Context, job *entity.Job) error {
 	return s.repo.Save(ctx, job)
 }
 
+func (s *JobService) Delete(ctx context.Context, id int64) error {
+	return s.repo.Delete(ctx, id)
+}
+
+func (s *JobService) GetAll(ctx context.Context) ([]*entity.Job, error) {
+	return s.repo.GetAll(ctx)
+}
+func (s *JobService) GetByID(ctx context.Context, id int64) (*entity.Job, error) {
+	return s.repo.GetByID(ctx, id)
+}
+
 func (s *JobService) SetRunning(ctx context.Context, id int64) error {
 	return s.repo.SetRunning(ctx, id)
 }

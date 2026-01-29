@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"pet-study/internal/queue"
 	"pet-study/internal/service"
 )
 
@@ -153,6 +154,13 @@ func MapError(r *http.Request, err error) MappedProblem {
 	case errors.Is(err, service.ErrForbidden):
 		return MappedProblem{
 			Problem: Problem{Status: http.StatusForbidden, Detail: "forbidden"},
+		}
+	}
+
+	// 5.1) Ошибки связанные с queue
+	if errors.Is(err, queue.ErrQueueFull) {
+		return MappedProblem{
+			Problem: Problem{Status: http.StatusServiceUnavailable, Detail: "queue is full"},
 		}
 	}
 

@@ -5,16 +5,19 @@ import (
 	"net/http"
 	"pet-study/internal/entity"
 	"pet-study/internal/httputils"
+	"pet-study/internal/queue"
 	"pet-study/internal/service"
 )
 
 type UsersV2Handler struct {
 	userService *service.UserService
 	jobService  *service.JobService
+	workerQueue *queue.Queue
 }
 
-func NewUserV2Handler(userService *service.UserService, jobService *service.JobService) *UsersV2Handler {
-	return &UsersV2Handler{userService: userService, jobService: jobService}
+func NewUserV2Handler(
+	userService *service.UserService, jobService *service.JobService, workerQueue *queue.Queue) *UsersV2Handler {
+	return &UsersV2Handler{userService: userService, jobService: jobService, workerQueue: workerQueue}
 }
 
 func (h *UsersV2Handler) Create(w http.ResponseWriter, r *http.Request) error {

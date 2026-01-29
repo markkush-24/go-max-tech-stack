@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"pet-study/internal/metrics"
 	"pet-study/internal/middleware"
+	"pet-study/internal/queue"
 	"pet-study/internal/store/jobrepo"
 	"syscall"
 
@@ -52,9 +53,12 @@ func run() error {
 		debugRouter = router.NewDebugRouter()
 	}
 
+	//Async chan
+	q := queue.New(10)
+
 	// Routers
-	userHandler := routes.NewUserHandler(userService, jobService)
-	userHandlerV2 := routes.NewUserV2Handler(userService, jobService)
+	userHandler := routes.NewUserHandler(userService, jobService, q)
+	userHandlerV2 := routes.NewUserV2Handler(userService, jobService, q)
 	userRouter := router.NewRouter(userHandler, userHandlerV2)
 
 	healthRouter := router.NewHealthRouter(readiness)

@@ -5,16 +5,19 @@ import (
 	"net/http"
 	"pet-study/internal/entity"
 	"pet-study/internal/httputils"
+	"pet-study/internal/queue"
 	"pet-study/internal/service"
 )
 
 type UsersHandler struct {
 	userService *service.UserService
 	jobService  *service.JobService
+	workerQueue *queue.Queue
 }
 
-func NewUserHandler(userService *service.UserService, jobService *service.JobService) *UsersHandler {
-	return &UsersHandler{userService: userService, jobService: jobService}
+func NewUserHandler(
+	userService *service.UserService, jobService *service.JobService, workerQueue *queue.Queue) *UsersHandler {
+	return &UsersHandler{userService: userService, jobService: jobService, workerQueue: workerQueue}
 }
 
 func (h *UsersHandler) Create(w http.ResponseWriter, r *http.Request) error {
@@ -41,6 +44,11 @@ func (h *UsersHandler) Create(w http.ResponseWriter, r *http.Request) error {
 		if err := h.jobService.Save(r.Context(), &job); err != nil {
 			return err
 		}
+		item := queue.WorkItem{JobID: job.ID, Payload: in}
+		if err := h.workerQueue.Enqueue(r.Context(), item); err != nil {
+			return err
+		}
+
 		w.Header().Set("Location", fmt.Sprintf("/api/v1/jobs/%d", job.ID))
 		return httputils.WriteJSON(w, http.StatusAccepted, job)
 	} else {
