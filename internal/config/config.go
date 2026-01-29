@@ -24,9 +24,14 @@ type DBConfig struct {
 	DSN string
 }
 
+type WorkerPoolConfig struct {
+	Workers int
+}
+
 type Config struct {
 	HTTP HTTPConfig
 	DB   DBConfig
+	Pool WorkerPoolConfig
 }
 
 func defaultConfig() Config {
@@ -43,6 +48,9 @@ func defaultConfig() Config {
 		},
 		DB: DBConfig{
 			DSN: "", // optional: if DB_DSN is set, it must be non-empty
+		},
+		Pool: WorkerPoolConfig{
+			Workers: 10, // optional: if DB_DSN is set, it must be non-empty
 		},
 	}
 }
@@ -84,6 +92,11 @@ func Load() (Config, error) {
 	}
 
 	cfg.HTTP.MaxHeaderBytes, err = lookupIntPositive("HTTP_MAX_HEADER_BYTES", cfg.HTTP.MaxHeaderBytes)
+	if err != nil {
+		return Config{}, err
+	}
+
+	cfg.Pool.Workers, err = lookupIntPositive("WORKERS_COUNT", cfg.Pool.Workers)
 	if err != nil {
 		return Config{}, err
 	}

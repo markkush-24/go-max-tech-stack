@@ -20,6 +20,7 @@ import (
 	"pet-study/internal/routes"
 	"pet-study/internal/service"
 	"pet-study/internal/store/userrepo"
+	"pet-study/internal/workerpool"
 )
 
 func main() {
@@ -43,18 +44,22 @@ func run() error {
 	userService := service.NewUserService(userRepository)
 	jobService := service.NewJobService(jobRepository)
 
-	readiness := health.NewReadiness(health.Check{
-		Name: "repo",
-		Fn:   userRepository.Ping,
-	})
+	//Async
+	q := queue.New(10)
+	pool := workerpool.NewWorkerPool(q, jobService)
+	poolErr := pool.Start(cfg.Pool.Workers)
+	if poolErr != nil {
+		return poolErr
+	}
+
+	readiness := health.NewReadiness(
+		health.Check{Name: "repo", Fn: userRepository.Ping},
+		health.Check{Name: "workerpool", Fn: pool.CheckRunning})
 
 	var debugRouter http.Handler
 	if cfg.HTTP.Debug {
 		debugRouter = router.NewDebugRouter()
 	}
-
-	//Async chan
-	q := queue.New(10)
 
 	// Routers
 	userHandler := routes.NewUserHandler(userService, jobService, q)
@@ -76,7 +81,7 @@ func run() error {
 	handler = middleware.Recover(handler) // outer: ловит panic в Logger/Metrics
 	handler = requestid.RequestIDMiddleware(handler)
 
-	server := api.NewAPIServer(cfg, handler, readiness)
+	server := api.NewAPIServer(cfg, handler, readiness, pool)
 	log.Printf("config: addr=%s debug=%v", cfg.HTTP.Addr, cfg.HTTP.Debug)
 	return server.Run(ctx)
 }

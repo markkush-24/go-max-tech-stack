@@ -7,19 +7,22 @@ import (
 	"net/http"
 	"pet-study/internal/config"
 	"pet-study/internal/health"
+	"pet-study/internal/workerpool"
 )
 
 type APIServer struct {
 	config    config.Config
 	router    http.Handler
 	readiness *health.Readiness
+	pool      *workerpool.WorkerPool
 }
 
-func NewAPIServer(config config.Config, router http.Handler, readiness *health.Readiness) *APIServer {
+func NewAPIServer(config config.Config, router http.Handler, readiness *health.Readiness, pool *workerpool.WorkerPool) *APIServer {
 	return &APIServer{
 		config:    config,
 		router:    router,
 		readiness: readiness,
+		pool:      pool,
 	}
 }
 
@@ -62,15 +65,22 @@ func (s *APIServer) Run(ctx context.Context) error {
 		sdCtx, cancel := context.WithTimeout(context.Background(), s.config.HTTP.ShutdownTimeout)
 		defer cancel()
 
+		if s.pool.IsRunning() {
+			if err := s.pool.Stop(sdCtx); err != nil {
+				log.Printf("worker pool stop: %v", err)
+			}
+		}
+
 		if err := srv.Shutdown(sdCtx); err != nil {
 			if errors.Is(err, context.DeadlineExceeded) {
 				log.Printf("shutdown timeout (%s), forcing close", s.config.HTTP.ShutdownTimeout)
 
-				<-errCh
 				// fallback: жёстко закрываем
 				if closeErr := srv.Close(); closeErr != nil {
 					return errors.Join(err, closeErr)
 				}
+
+				<-errCh
 				return nil // политика: таймаут — не “ошибка запуска”, мы уже остановились
 			}
 
