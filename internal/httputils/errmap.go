@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"pet-study/internal/entity"
 	"pet-study/internal/queue"
 	"pet-study/internal/service"
 )
@@ -161,6 +162,12 @@ func MapError(r *http.Request, err error) MappedProblem {
 	if errors.Is(err, queue.ErrQueueFull) {
 		return MappedProblem{
 			Problem: Problem{Status: http.StatusServiceUnavailable, Detail: "queue is full"},
+		}
+	}
+
+	if errors.Is(err, entity.ErrJobNotFound) {
+		return MappedProblem{
+			Problem: Problem{Status: http.StatusNotFound, Detail: "not found"},
 		}
 	}
 

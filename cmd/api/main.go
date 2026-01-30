@@ -46,7 +46,7 @@ func run() error {
 
 	//Async
 	q := queue.New(10)
-	pool := workerpool.NewWorkerPool(q, jobService)
+	pool := workerpool.NewWorkerPool(q, jobService, userService)
 	poolErr := pool.Start(cfg.Pool.Workers)
 	if poolErr != nil {
 		return poolErr
@@ -64,7 +64,10 @@ func run() error {
 	// Routers
 	userHandler := routes.NewUserHandler(userService, jobService, q)
 	userHandlerV2 := routes.NewUserV2Handler(userService, jobService, q)
-	userRouter := router.NewRouter(userHandler, userHandlerV2)
+
+	jobsHandler := routes.NewJobHandler(jobService)
+
+	userRouter := router.NewRouter(userHandler, userHandlerV2, jobsHandler)
 
 	healthRouter := router.NewHealthRouter(readiness)
 	rootRouter := router.NewRoot(userRouter, healthRouter, debugRouter)
