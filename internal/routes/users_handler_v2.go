@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"pet-study/internal/entity"
@@ -26,25 +27,56 @@ func (h *UsersV2Handler) Create(w http.ResponseWriter, r *http.Request) error {
 	if err := httputils.RequireJSONContentType(r); err != nil {
 		return err
 	}
+	qs := r.URL.Query().Get("async")
+	if qs == "1" {
+		var in entity.CreateUserInputV2
+		if err := httputils.ParseJSON(r.Body, &in); err != nil {
+			return err
+		}
 
-	var in entity.CreateUserInputV2
-	if err := httputils.ParseJSON(r.Body, &in); err != nil {
-		return err
+		if details := httputils.ValidateCreateUserInputV2(in); len(details) > 0 {
+			return &httputils.ValidationError{
+				InvalidParams: httputils.ToInvalidParams(details),
+			}
+		}
+
+		inV1 := entity.MapCreateV2ToV1(in)
+		job := entity.Job{Status: entity.JobQueued}
+		if err := h.jobService.Save(r.Context(), &job); err != nil {
+			return err
+		}
+		item := queue.WorkItem{JobID: job.ID, Payload: inV1}
+		if enqueueErr := h.workerQueue.Enqueue(r.Context(), item); enqueueErr != nil {
+			deleteErr := h.jobService.Delete(r.Context(), job.ID)
+			if deleteErr != nil {
+				return errors.Join(enqueueErr, deleteErr)
+			}
+			return enqueueErr
+		}
+
+		w.Header().Set("Location", fmt.Sprintf("/api/v1/jobs/%d", job.ID))
+		return httputils.WriteJSON(w, http.StatusAccepted, job)
+	} else {
+		var in entity.CreateUserInputV2
+		if err := httputils.ParseJSON(r.Body, &in); err != nil {
+			return err
+		}
+
+		if details := httputils.ValidateCreateUserInputV2(in); len(details) > 0 {
+			return &httputils.ValidationError{InvalidParams: httputils.ToInvalidParams(details)}
+		}
+
+		v1in := entity.MapCreateV2ToV1(in)
+
+		created, err := h.userService.CreateUser(r.Context(), &v1in)
+		if err != nil {
+			return err
+		}
+
+		w.Header().Set("Location", fmt.Sprintf("/api/v2/users/%d", created.ID))
+		return httputils.WriteJSON(w, http.StatusCreated, entity.MapUserDTOToV2(created))
 	}
-
-	if details := httputils.ValidateCreateUserInputV2(in); len(details) > 0 {
-		return &httputils.ValidationError{InvalidParams: httputils.ToInvalidParams(details)}
-	}
-
-	v1in := entity.MapCreateV2ToV1(in)
-
-	created, err := h.userService.CreateUser(r.Context(), &v1in)
-	if err != nil {
-		return err
-	}
-
-	w.Header().Set("Location", fmt.Sprintf("/api/v2/users/%d", created.ID))
-	return httputils.WriteJSON(w, http.StatusCreated, entity.MapUserDTOToV2(created))
+	return nil
 }
 
 func (h *UsersV2Handler) GetByID(w http.ResponseWriter, r *http.Request, id int) error {

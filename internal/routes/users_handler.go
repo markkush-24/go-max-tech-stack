@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"pet-study/internal/entity"
@@ -45,8 +46,12 @@ func (h *UsersHandler) Create(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 		item := queue.WorkItem{JobID: job.ID, Payload: in}
-		if err := h.workerQueue.Enqueue(r.Context(), item); err != nil {
-			return err
+		if enqueueErr := h.workerQueue.Enqueue(r.Context(), item); enqueueErr != nil {
+			deleteErr := h.jobService.Delete(r.Context(), job.ID)
+			if deleteErr != nil {
+				return errors.Join(enqueueErr, deleteErr)
+			}
+			return enqueueErr
 		}
 
 		w.Header().Set("Location", fmt.Sprintf("/api/v1/jobs/%d", job.ID))
