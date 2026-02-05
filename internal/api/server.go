@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"pet-study/internal/config"
 	"pet-study/internal/health"
+	"pet-study/internal/queue"
 	"pet-study/internal/workerpool"
 )
 
@@ -15,14 +16,22 @@ type APIServer struct {
 	router    http.Handler
 	readiness *health.Readiness
 	pool      *workerpool.WorkerPool
+	queue     *queue.Queue
 }
 
-func NewAPIServer(config config.Config, router http.Handler, readiness *health.Readiness, pool *workerpool.WorkerPool) *APIServer {
+func NewAPIServer(
+	config config.Config,
+	router http.Handler,
+	readiness *health.Readiness,
+	pool *workerpool.WorkerPool,
+	queue *queue.Queue,
+) *APIServer {
 	return &APIServer{
 		config:    config,
 		router:    router,
 		readiness: readiness,
 		pool:      pool,
+		queue:     queue,
 	}
 }
 
@@ -65,11 +74,7 @@ func (s *APIServer) Run(ctx context.Context) error {
 		sdCtx, cancel := context.WithTimeout(context.Background(), s.config.HTTP.ShutdownTimeout)
 		defer cancel()
 
-		if s.pool.IsRunning() {
-			if err := s.pool.Stop(sdCtx); err != nil {
-				log.Printf("worker pool stop: %v", err)
-			}
-		}
+		s.queue.StopAccepting()
 
 		if err := srv.Shutdown(sdCtx); err != nil {
 			if errors.Is(err, context.DeadlineExceeded) {
@@ -89,6 +94,15 @@ func (s *APIServer) Run(ctx context.Context) error {
 			<-errCh
 
 			return err
+		}
+
+		poolCtx, cancelPool := context.WithTimeout(context.Background(), s.config.HTTP.ShutdownTimeout)
+		defer cancelPool()
+
+		if s.pool.IsRunning() {
+			if err := s.pool.Stop(poolCtx); err != nil {
+				log.Printf("worker pool stop: %v", err)
+			}
 		}
 
 		<-errCh

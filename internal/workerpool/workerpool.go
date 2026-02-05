@@ -19,7 +19,7 @@ type WorkerPool struct {
 	jobService  *service.JobService
 	userService *service.UserService
 
-	mu      sync.Mutex
+	mu      sync.RWMutex
 	running bool
 
 	ctx    context.Context
@@ -37,7 +37,7 @@ func NewWorkerPool(q *queue.Queue, jobSvc *service.JobService, userSvc *service.
 
 func (wp *WorkerPool) CheckRunning(ctx context.Context) error {
 	if !wp.IsRunning() {
-		return errors.New("worker pool not running")
+		return ErrPoolNotRunning
 	}
 	return nil
 }
@@ -88,8 +88,8 @@ func (wp *WorkerPool) Stop(ctx context.Context) error {
 }
 
 func (wp *WorkerPool) IsRunning() bool {
-	wp.mu.Lock()
-	defer wp.mu.Unlock()
+	wp.mu.RLock()
+	defer wp.mu.RUnlock()
 	return wp.running
 }
 

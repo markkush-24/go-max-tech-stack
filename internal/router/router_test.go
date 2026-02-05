@@ -6,9 +6,12 @@ import (
 	"mime"
 	"net/http"
 	"net/http/httptest"
+	"pet-study/internal/middleware"
+	"pet-study/internal/queue"
 	"pet-study/internal/router"
 	"pet-study/internal/routes"
 	"pet-study/internal/service"
+	"pet-study/internal/store/jobrepo"
 	"pet-study/internal/store/userrepo"
 	"testing"
 )
@@ -26,12 +29,20 @@ func newTestHandler(t *testing.T) http.Handler {
 	t.Helper()
 
 	repo := userrepo.NewMemoryUserRepository()
+	repoJob := jobrepo.NewMemoryJobRepository()
+	q := queue.New(10)
+
+	lim := middleware.NewRateLimitedAPI(float64(10), 5)
+
 	svc := service.NewUserService(repo)
+	jobSvc := service.NewJobService(repoJob)
 
-	v1 := routes.NewUserHandler(svc)
-	v2 := routes.NewUserV2Handler(svc)
+	v1 := routes.NewUserHandler(svc, jobSvc, q)
+	v2 := routes.NewUserV2Handler(svc, jobSvc, q)
 
-	return router.NewRouter(v1, v2)
+	jh := routes.NewJobHandler(jobSvc)
+
+	return router.NewRouter(v1, v2, jh, lim)
 }
 
 func decodeProblem(t *testing.T, rec *httptest.ResponseRecorder) problem {

@@ -5,6 +5,7 @@ import (
 	"expvar"
 	"pet-study/internal/entity"
 	"sync"
+	"sync/atomic"
 )
 
 var (
@@ -13,7 +14,9 @@ var (
 )
 
 type Queue struct {
-	ch chan WorkItem
+	ch        chan WorkItem
+	closed    atomic.Bool
+	closeOnce sync.Once
 }
 
 type WorkItem struct {
@@ -21,7 +24,14 @@ type WorkItem struct {
 	Payload entity.CreateUserInput
 }
 
+func (q *Queue) StopAccepting() {
+	q.closed.Store(true)
+}
+
 func (q *Queue) Enqueue(ctx context.Context, item WorkItem) error {
+	if q.closed.Load() == true {
+		return ErrQueueStopped
+	}
 	select {
 	case q.ch <- item:
 		return nil

@@ -26,17 +26,20 @@ go run .\cmd\api
 Все значения читаются из переменных окружения. Если переменная **не задана** — используется дефолт.
 Если переменная **задана, но пустая/некорректная** — приложение завершится с ошибкой.
 
-| Переменная | Тип | Дефолт | Описание |
-|---|---:|---:|---|
-| `HTTP_ADDR` | string | `:8080` | Адрес для `http.Server.Addr` |
-| `HTTP_READ_HEADER_TIMEOUT` | duration | `5s` | Таймаут чтения заголовков (slowloris mitigation) |
-| `HTTP_READ_TIMEOUT` | duration | `10s` | Таймаут чтения запроса целиком |
-| `HTTP_WRITE_TIMEOUT` | duration | `15s` | Таймаут записи ответа |
-| `HTTP_IDLE_TIMEOUT` | duration | `120s` | Keep-alive idle timeout |
-| `HTTP_SHUTDOWN_TIMEOUT` | duration | `10s` | Дедлайн на graceful shutdown |
-| `HTTP_MAX_HEADER_BYTES` | int | `http.DefaultMaxHeaderBytes` | Лимит размера заголовков |
-| `HTTP_DEBUG` | bool | `false` | Включить debug endpoints (`/debug/...`) |
-| `DB_DSN` | string | *(пусто)* | Опционально (в Step 3 используется in-memory repo). Если задана — должна быть непустой |
+| Переменная                 |      Тип |                       Дефолт | Описание                                                                                |
+|----------------------------|---------:|-----------------------------:|-----------------------------------------------------------------------------------------|
+| `HTTP_ADDR`                |   string |                      `:8080` | Адрес для `http.Server.Addr`                                                            |
+| `HTTP_READ_HEADER_TIMEOUT` | duration |                         `5s` | Таймаут чтения заголовков (slowloris mitigation)                                        |
+| `HTTP_READ_TIMEOUT`        | duration |                        `10s` | Таймаут чтения запроса целиком                                                          |
+| `HTTP_WRITE_TIMEOUT`       | duration |                        `15s` | Таймаут записи ответа                                                                   |
+| `HTTP_IDLE_TIMEOUT`        | duration |                       `120s` | Keep-alive idle timeout                                                                 |
+| `HTTP_SHUTDOWN_TIMEOUT`    | duration |                        `10s` | Дедлайн на graceful shutdown                                                            |
+| `HTTP_MAX_HEADER_BYTES`    |      int | `http.DefaultMaxHeaderBytes` | Лимит размера заголовков                                                                |
+| `HTTP_DEBUG`               |     bool |                      `false` | Включить debug endpoints (`/debug/...`)                                                 |
+| `DB_DSN`                   |   string |                    *(пусто)* | Опционально (в Step 3 используется in-memory repo). Если задана — должна быть непустой  |
+| `WORKERS_COUNT`            |      int |                           10 | Кол-во воркеров worker pool для обработки async jobs (должно быть > 0)                  |
+| `RATE_LIMIT_RPS`           |      int |                            5 | Глобальный rate limit (requests per second) для API (token bucket)                      |
+| `RATE_LIMIT_BURST`         |      int |                           10 | Burst (ёмкость “ведра”), сколько запросов можно пропустить сразу                        |
 
 Пример (PowerShell):
 ```powershell

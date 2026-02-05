@@ -61,13 +61,15 @@ func run() error {
 		debugRouter = router.NewDebugRouter()
 	}
 
+	limitedAPI := middleware.NewRateLimitedAPI(float64(cfg.Limiter.RPS), cfg.Limiter.BURST)
+
 	// Routers
 	userHandler := routes.NewUserHandler(userService, jobService, q)
 	userHandlerV2 := routes.NewUserV2Handler(userService, jobService, q)
 
 	jobsHandler := routes.NewJobHandler(jobService)
 
-	userRouter := router.NewRouter(userHandler, userHandlerV2, jobsHandler)
+	userRouter := router.NewRouter(userHandler, userHandlerV2, jobsHandler, limitedAPI)
 
 	healthRouter := router.NewHealthRouter(readiness)
 	rootRouter := router.NewRoot(userRouter, healthRouter, debugRouter)
@@ -84,7 +86,7 @@ func run() error {
 	handler = middleware.Recover(handler) // outer: ловит panic в Logger/Metrics
 	handler = requestid.RequestIDMiddleware(handler)
 
-	server := api.NewAPIServer(cfg, handler, readiness, pool)
+	server := api.NewAPIServer(cfg, handler, readiness, pool, q)
 	log.Printf("config: addr=%s debug=%v", cfg.HTTP.Addr, cfg.HTTP.Debug)
 	return server.Run(ctx)
 }

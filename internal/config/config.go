@@ -28,10 +28,16 @@ type WorkerPoolConfig struct {
 	Workers int
 }
 
+type RateLimiterConfig struct {
+	RPS   int
+	BURST int
+}
+
 type Config struct {
-	HTTP HTTPConfig
-	DB   DBConfig
-	Pool WorkerPoolConfig
+	HTTP    HTTPConfig
+	DB      DBConfig
+	Pool    WorkerPoolConfig
+	Limiter RateLimiterConfig
 }
 
 func defaultConfig() Config {
@@ -51,6 +57,10 @@ func defaultConfig() Config {
 		},
 		Pool: WorkerPoolConfig{
 			Workers: 10, // optional: if DB_DSN is set, it must be non-empty
+		},
+		Limiter: RateLimiterConfig{
+			RPS:   5,
+			BURST: 10,
 		},
 	}
 }
@@ -97,6 +107,16 @@ func Load() (Config, error) {
 	}
 
 	cfg.Pool.Workers, err = lookupIntPositive("WORKERS_COUNT", cfg.Pool.Workers)
+	if err != nil {
+		return Config{}, err
+	}
+
+	cfg.Limiter.RPS, err = lookupIntPositive("RATE_LIMIT_RPS", cfg.Limiter.RPS)
+	if err != nil {
+		return Config{}, err
+	}
+
+	cfg.Limiter.BURST, err = lookupIntPositive("RATE_LIMIT_BURST", cfg.Limiter.BURST)
 	if err != nil {
 		return Config{}, err
 	}

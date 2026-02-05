@@ -7,6 +7,8 @@ import (
 	"pet-study/internal/entity"
 	"pet-study/internal/queue"
 	"pet-study/internal/service"
+	"strconv"
+	"time"
 )
 
 // ValidationError — семантическая валидация (422) с invalid_params.
@@ -165,9 +167,32 @@ func MapError(r *http.Request, err error) MappedProblem {
 		}
 	}
 
+	if errors.Is(err, queue.ErrQueueStopped) {
+		return MappedProblem{
+			Problem: Problem{Status: http.StatusServiceUnavailable, Detail: "queue is stopped"},
+		}
+	}
+
 	if errors.Is(err, entity.ErrJobNotFound) {
 		return MappedProblem{
 			Problem: Problem{Status: http.StatusNotFound, Detail: "not found"},
+		}
+	}
+
+	var rle *RateLimitError
+
+	if errors.As(err, &rle) {
+		d := rle.RetryAfter
+		secsDur := (d + time.Second - 1) / time.Second
+		secs := int64(secsDur / time.Second)
+		if secs < 1 {
+			secs = 1
+		}
+		h := make(http.Header, 1)
+		h.Set("Retry-After", strconv.FormatInt(secs, 10))
+		return MappedProblem{
+			Problem: Problem{Status: http.StatusTooManyRequests, Detail: "too many requests"},
+			Headers: h,
 		}
 	}
 
