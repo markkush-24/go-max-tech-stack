@@ -47,10 +47,11 @@ func TestQueueOverflowFastFail(t *testing.T) {
 	v2 := NewUserV2Handler(userSvc, jobSvc, q)
 
 	lim := middleware.NewRateLimitedAPI(float64(10), 5)
+	bh := middleware.NewBulkhead(1)
 
 	jh := NewJobHandler(jobSvc)
 
-	userRouter := router.NewRouter(v1, v2, jh, lim)
+	userRouter := router.NewRouter(v1, v2, jh, lim, bh)
 
 	healthRouter := router.NewHealthRouter(readiness)
 	rootRouter := router.NewRoot(userRouter, healthRouter, nil)

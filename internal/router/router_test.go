@@ -33,6 +33,7 @@ func newTestHandler(t *testing.T) http.Handler {
 	q := queue.New(10)
 
 	lim := middleware.NewRateLimitedAPI(float64(10), 5)
+	bh := middleware.NewBulkhead(1)
 
 	svc := service.NewUserService(repo)
 	jobSvc := service.NewJobService(repoJob)
@@ -42,7 +43,7 @@ func newTestHandler(t *testing.T) http.Handler {
 
 	jh := routes.NewJobHandler(jobSvc)
 
-	return router.NewRouter(v1, v2, jh, lim)
+	return router.NewRouter(v1, v2, jh, lim, bh)
 }
 
 func decodeProblem(t *testing.T, rec *httptest.ResponseRecorder) problem {
