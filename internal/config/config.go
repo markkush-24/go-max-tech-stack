@@ -33,11 +33,16 @@ type RateLimiterConfig struct {
 	BURST int
 }
 
+type BulkheadConfig struct {
+	MaxParallel int
+}
+
 type Config struct {
-	HTTP    HTTPConfig
-	DB      DBConfig
-	Pool    WorkerPoolConfig
-	Limiter RateLimiterConfig
+	HTTP     HTTPConfig
+	DB       DBConfig
+	Pool     WorkerPoolConfig
+	Limiter  RateLimiterConfig
+	Bulkhead BulkheadConfig
 }
 
 func defaultConfig() Config {
@@ -61,6 +66,9 @@ func defaultConfig() Config {
 		Limiter: RateLimiterConfig{
 			RPS:   5,
 			BURST: 10,
+		},
+		Bulkhead: BulkheadConfig{
+			MaxParallel: 1,
 		},
 	}
 }
@@ -117,6 +125,11 @@ func Load() (Config, error) {
 	}
 
 	cfg.Limiter.BURST, err = lookupIntPositive("RATE_LIMIT_BURST", cfg.Limiter.BURST)
+	if err != nil {
+		return Config{}, err
+	}
+
+	cfg.Bulkhead.MaxParallel, err = lookupIntPositive("BULKHEAD_MAX_PARALLEL", cfg.Bulkhead.MaxParallel)
 	if err != nil {
 		return Config{}, err
 	}

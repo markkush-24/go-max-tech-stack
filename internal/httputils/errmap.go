@@ -196,6 +196,12 @@ func MapError(r *http.Request, err error) MappedProblem {
 		}
 	}
 
+	if errors.Is(err, ErrBulkheadRejected) {
+		return MappedProblem{
+			Problem: Problem{Status: http.StatusServiceUnavailable, Detail: "bulkhead rejected"},
+		}
+	}
+
 	// 6) Всё остальное — unexpected 500.
 	// Здесь же центрально логируем.
 	return MappedProblem{

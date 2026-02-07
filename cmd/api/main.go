@@ -62,6 +62,7 @@ func run() error {
 	}
 
 	limitedAPI := middleware.NewRateLimitedAPI(float64(cfg.Limiter.RPS), cfg.Limiter.BURST)
+	bulkhead := middleware.NewBulkhead(cfg.Bulkhead.MaxParallel)
 
 	// Routers
 	userHandler := routes.NewUserHandler(userService, jobService, q)
@@ -69,7 +70,7 @@ func run() error {
 
 	jobsHandler := routes.NewJobHandler(jobService)
 
-	userRouter := router.NewRouter(userHandler, userHandlerV2, jobsHandler, limitedAPI)
+	userRouter := router.NewRouter(userHandler, userHandlerV2, jobsHandler, limitedAPI, bulkhead)
 
 	healthRouter := router.NewHealthRouter(readiness)
 	rootRouter := router.NewRoot(userRouter, healthRouter, debugRouter)

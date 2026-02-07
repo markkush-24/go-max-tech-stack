@@ -30,10 +30,11 @@ func TestRateLimiterRetryAfter(t *testing.T) {
 	v2 := routes.NewUserV2Handler(userSvc, jobSvc, q)
 
 	lim := middleware.NewRateLimitedAPI(float64(1), 1)
+	bh := middleware.NewBulkhead(1)
 
 	jh := routes.NewJobHandler(jobSvc)
 
-	userRouter := router.NewRouter(v1, v2, jh, lim)
+	userRouter := router.NewRouter(v1, v2, jh, lim, bh)
 
 	rootRouter := router.NewRoot(userRouter, http.NewServeMux(), nil)
 
