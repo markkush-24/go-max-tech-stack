@@ -6,6 +6,7 @@ import (
 	"mime"
 	"net/http"
 	"net/http/httptest"
+	"pet-study/internal/metrics"
 	"pet-study/internal/middleware"
 	"pet-study/internal/queue"
 	"pet-study/internal/router"
@@ -32,14 +33,17 @@ func newTestHandler(t *testing.T) http.Handler {
 	repoJob := jobrepo.NewMemoryJobRepository()
 	q := queue.New(10)
 
+	// Metrics registry
+	m := metrics.DefaultHTTP()
+
 	lim := middleware.NewRateLimitedAPI(float64(10), 5)
 	bh := middleware.NewBulkhead(1)
 
 	svc := service.NewUserService(repo)
 	jobSvc := service.NewJobService(repoJob)
 
-	v1 := routes.NewUserHandler(svc, jobSvc, q)
-	v2 := routes.NewUserV2Handler(svc, jobSvc, q)
+	v1 := routes.NewUserHandler(svc, jobSvc, q, m)
+	v2 := routes.NewUserV2Handler(svc, jobSvc, q, m)
 
 	jh := routes.NewJobHandler(jobSvc)
 

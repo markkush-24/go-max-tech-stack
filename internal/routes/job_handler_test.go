@@ -32,8 +32,11 @@ func TestQueueOverflowFastFail(t *testing.T) {
 	userSvc := service.NewUserService(userRepo)
 	jobSvc := service.NewJobService(jobRepo)
 
+	// Metrics registry
+	m := metrics.DefaultHTTP()
+
 	q := queue.New(1)
-	pool := workerpool.NewWorkerPool(q, jobSvc, userSvc)
+	pool := workerpool.NewWorkerPool(q, jobSvc, userSvc, m)
 	err := pool.Start(0)
 	if err != nil {
 		t.Fatalf("start workerpool: %v", err)
@@ -43,8 +46,8 @@ func TestQueueOverflowFastFail(t *testing.T) {
 		health.Check{Name: "repo", Fn: userRepo.Ping},
 		health.Check{Name: "workerpool", Fn: pool.CheckRunning})
 
-	v1 := NewUserHandler(userSvc, jobSvc, q)
-	v2 := NewUserV2Handler(userSvc, jobSvc, q)
+	v1 := NewUserHandler(userSvc, jobSvc, q, m)
+	v2 := NewUserV2Handler(userSvc, jobSvc, q, m)
 
 	lim := middleware.NewRateLimitedAPI(float64(10), 5)
 	bh := middleware.NewBulkhead(1)
@@ -55,9 +58,6 @@ func TestQueueOverflowFastFail(t *testing.T) {
 
 	healthRouter := router.NewHealthRouter(readiness)
 	rootRouter := router.NewRoot(userRouter, healthRouter, nil)
-
-	// Metrics registry
-	m := metrics.DefaultHTTP()
 
 	// Middleware chain (outer -> inner):
 	// RequestID -> Metrics -> Logger -> Recover -> Router

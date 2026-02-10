@@ -25,9 +25,10 @@ func TestRateLimiterRetryAfter(t *testing.T) {
 	jobSvc := service.NewJobService(jobRepo)
 
 	q := queue.New(1)
+	m := metrics.DefaultHTTP()
 
-	v1 := routes.NewUserHandler(userSvc, jobSvc, q)
-	v2 := routes.NewUserV2Handler(userSvc, jobSvc, q)
+	v1 := routes.NewUserHandler(userSvc, jobSvc, q, m)
+	v2 := routes.NewUserV2Handler(userSvc, jobSvc, q, m)
 
 	lim := middleware.NewRateLimitedAPI(float64(1), 1)
 	bh := middleware.NewBulkhead(1)
@@ -37,9 +38,6 @@ func TestRateLimiterRetryAfter(t *testing.T) {
 	userRouter := router.NewRouter(v1, v2, jh, lim, bh)
 
 	rootRouter := router.NewRoot(userRouter, http.NewServeMux(), nil)
-
-	// Metrics registry
-	m := metrics.DefaultHTTP()
 
 	// Middleware chain (outer -> inner):
 	// RequestID -> Metrics -> Logger -> Recover -> Router
