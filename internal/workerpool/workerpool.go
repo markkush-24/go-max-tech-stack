@@ -7,17 +7,20 @@ import (
 	"net/http"
 	"pet-study/internal/entity"
 	"pet-study/internal/httputils"
+	"pet-study/internal/metrics"
 	"pet-study/internal/queue"
 	"pet-study/internal/service"
 	"sync"
+	"time"
 )
 
 var ErrPoolNotRunning = errors.New("worker pool not running")
 
 type WorkerPool struct {
-	queue       *queue.Queue
-	jobService  *service.JobService
-	userService *service.UserService
+	queue        *queue.Queue
+	jobService   *service.JobService
+	userService  *service.UserService
+	jobsObserver metrics.JobsObserver
 
 	mu      sync.RWMutex
 	running bool
@@ -27,11 +30,17 @@ type WorkerPool struct {
 	wg     sync.WaitGroup
 }
 
-func NewWorkerPool(q *queue.Queue, jobSvc *service.JobService, userSvc *service.UserService) *WorkerPool {
+func NewWorkerPool(
+	q *queue.Queue,
+	jobSvc *service.JobService,
+	userSvc *service.UserService,
+	metrics metrics.JobsObserver,
+) *WorkerPool {
 	return &WorkerPool{
-		queue:       q,
-		jobService:  jobSvc,
-		userService: userSvc,
+		queue:        q,
+		jobService:   jobSvc,
+		userService:  userSvc,
+		jobsObserver: metrics,
 	}
 }
 
@@ -116,20 +125,26 @@ func (wp *WorkerPool) workerLoop() {
 					continue
 				}
 			}
+			wp.jobsObserver.IncRunning()
+			start := time.Now()
+
 			user, userErr := wp.userService.CreateUser(wp.ctx, &item.Payload)
 			if userErr != nil {
-				err := wp.jobService.SetFailed(wp.ctx, item.JobID, ToJobProblem(userErr))
-				if err != nil {
-					log.Printf("Error when attempt setFailed status for job %d , error = %v", item.JobID, err)
+				if err := wp.jobService.SetFailed(wp.ctx, item.JobID, ToJobProblem(userErr)); err != nil {
+					log.Printf("setFailed job=%d: %v", item.JobID, err)
+					continue
 				}
-				log.Printf("Error when attempt to create user jobID = %v , err = %v", item.JobID, userErr)
+				wp.jobsObserver.IncFailed()
+				wp.jobsObserver.ObserveProcessing(time.Since(start))
 				continue
-			} else {
-				succeedErr := wp.jobService.SetSucceeded(wp.ctx, item.JobID, entity.JobResult{UserID: int64(user.ID)})
-				if succeedErr != nil {
-					log.Printf("Error when attempt SetSucceeded status for job  %d, error = %v", item.JobID, succeedErr)
-				}
 			}
+
+			if err := wp.jobService.SetSucceeded(wp.ctx, item.JobID, entity.JobResult{UserID: int64(user.ID)}); err != nil {
+				log.Printf("setSucceeded job=%d: %v", item.JobID, err)
+				continue
+			}
+			wp.jobsObserver.IncSucceeded()
+			wp.jobsObserver.ObserveProcessing(time.Since(start))
 		}
 	}
 }

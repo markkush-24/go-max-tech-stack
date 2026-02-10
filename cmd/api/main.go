@@ -38,6 +38,9 @@ func run() error {
 		return err
 	}
 
+	// Metrics registry
+	m := metrics.DefaultHTTP()
+
 	// Dependencies
 	userRepository := userrepo.NewMemoryUserRepository()
 	jobRepository := jobrepo.NewMemoryJobRepository()
@@ -46,7 +49,7 @@ func run() error {
 
 	//Async
 	q := queue.New(10)
-	pool := workerpool.NewWorkerPool(q, jobService, userService)
+	pool := workerpool.NewWorkerPool(q, jobService, userService, m)
 	poolErr := pool.Start(cfg.Pool.Workers)
 	if poolErr != nil {
 		return poolErr
@@ -65,8 +68,8 @@ func run() error {
 	bulkhead := middleware.NewBulkhead(cfg.Bulkhead.MaxParallel)
 
 	// Routers
-	userHandler := routes.NewUserHandler(userService, jobService, q)
-	userHandlerV2 := routes.NewUserV2Handler(userService, jobService, q)
+	userHandler := routes.NewUserHandler(userService, jobService, q, m)
+	userHandlerV2 := routes.NewUserV2Handler(userService, jobService, q, m)
 
 	jobsHandler := routes.NewJobHandler(jobService)
 
@@ -74,9 +77,6 @@ func run() error {
 
 	healthRouter := router.NewHealthRouter(readiness)
 	rootRouter := router.NewRoot(userRouter, healthRouter, debugRouter)
-
-	// Metrics registry
-	m := metrics.DefaultHTTP()
 
 	// Middleware chain (outer -> inner):
 	// RequestID -> Metrics -> Logger -> Recover -> Router

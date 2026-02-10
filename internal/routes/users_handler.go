@@ -6,19 +6,29 @@ import (
 	"net/http"
 	"pet-study/internal/entity"
 	"pet-study/internal/httputils"
+	"pet-study/internal/metrics"
 	"pet-study/internal/queue"
 	"pet-study/internal/service"
 )
 
 type UsersHandler struct {
-	userService *service.UserService
-	jobService  *service.JobService
-	workerQueue *queue.Queue
+	userService  *service.UserService
+	jobService   *service.JobService
+	workerQueue  *queue.Queue
+	jobsObserver metrics.JobsObserver
 }
 
 func NewUserHandler(
-	userService *service.UserService, jobService *service.JobService, workerQueue *queue.Queue) *UsersHandler {
-	return &UsersHandler{userService: userService, jobService: jobService, workerQueue: workerQueue}
+	userService *service.UserService,
+	jobService *service.JobService,
+	workerQueue *queue.Queue,
+	metrics metrics.JobsObserver,
+) *UsersHandler {
+	return &UsersHandler{
+		userService:  userService,
+		jobService:   jobService,
+		workerQueue:  workerQueue,
+		jobsObserver: metrics}
 }
 
 func (h *UsersHandler) Create(w http.ResponseWriter, r *http.Request) error {
@@ -53,6 +63,7 @@ func (h *UsersHandler) Create(w http.ResponseWriter, r *http.Request) error {
 			}
 			return enqueueErr
 		}
+		h.jobsObserver.IncQueued()
 
 		w.Header().Set("Location", fmt.Sprintf("/api/v1/jobs/%d", job.ID))
 		return httputils.WriteJSON(w, http.StatusAccepted, job)

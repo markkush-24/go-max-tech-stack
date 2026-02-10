@@ -10,11 +10,23 @@ import (
 // HTTPMetrics — минимальные HTTP-метрики.
 // Экспортируются через expvar (обычно /debug/vars).
 type HTTPMetrics struct {
-	inFlight      *expvar.Int
-	requestsTotal *expvar.Map
-	errorsTotal   *expvar.Map
-	latencySumNS  *expvar.Map
-	latencyCount  *expvar.Map
+	inFlight                    *expvar.Int
+	jobProcessingLatencyNsSum   *expvar.Int
+	jobProcessingLatencyNsCount *expvar.Int
+	requestsTotal               *expvar.Map
+	errorsTotal                 *expvar.Map
+	latencySumNS                *expvar.Map
+	latencyCount                *expvar.Map
+	jobsTotal                   *expvar.Map
+}
+
+func (m *HTTPMetrics) IncQueued()    { m.jobsTotal.Add("queued", 1) }
+func (m *HTTPMetrics) IncRunning()   { m.jobsTotal.Add("running", 1) }
+func (m *HTTPMetrics) IncSucceeded() { m.jobsTotal.Add("succeeded", 1) }
+func (m *HTTPMetrics) IncFailed()    { m.jobsTotal.Add("failed", 1) }
+func (m *HTTPMetrics) ObserveProcessing(d time.Duration) {
+	m.jobProcessingLatencyNsSum.Add(d.Nanoseconds())
+	m.jobProcessingLatencyNsCount.Add(1)
 }
 
 var (
@@ -25,11 +37,14 @@ var (
 func DefaultHTTP() *HTTPMetrics {
 	once.Do(func() {
 		defaultHTTP = &HTTPMetrics{
-			inFlight:      expvar.NewInt("http_in_flight"),
-			requestsTotal: expvar.NewMap("http_requests_total"),
-			errorsTotal:   expvar.NewMap("http_errors_total"),
-			latencySumNS:  expvar.NewMap("http_latency_ns_sum"),
-			latencyCount:  expvar.NewMap("http_latency_ns_count"),
+			inFlight:                    expvar.NewInt("http_in_flight"),
+			jobProcessingLatencyNsSum:   expvar.NewInt("job_processing_latency_ns_sum"),
+			jobProcessingLatencyNsCount: expvar.NewInt("job_processing_latency_ns_count"),
+			requestsTotal:               expvar.NewMap("http_requests_total"),
+			errorsTotal:                 expvar.NewMap("http_errors_total"),
+			latencySumNS:                expvar.NewMap("http_latency_ns_sum"),
+			latencyCount:                expvar.NewMap("http_latency_ns_count"),
+			jobsTotal:                   expvar.NewMap("jobs_total"),
 		}
 	})
 	return defaultHTTP
