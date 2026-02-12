@@ -40,6 +40,7 @@ go run .\cmd\api
 | `WORKERS_COUNT`            |      int |                           10 | Кол-во воркеров worker pool для обработки async jobs (должно быть > 0)                  |
 | `RATE_LIMIT_RPS`           |      int |                            5 | Глобальный rate limit (requests per second) для API (token bucket)                      |
 | `RATE_LIMIT_BURST`         |      int |                           10 | Burst (ёмкость “ведра”), сколько запросов можно пропустить сразу                        |
+| `BULKHEAD_MAX_PARALLEL`    |      int |                            1 | Bulkhead (concurrency limit): максимум параллельных запросов (должно быть > 0)          |
 
 Пример (PowerShell):
 ```powershell
@@ -68,6 +69,17 @@ HTTP_ADDR=":8080" HTTP_DEBUG=true go run ./cmd/api
 
 **v2 contract:** поле **`full_name`**. Поле **`name`** в v2 отклоняется.
 
+### Jobs (async)
+- `GET  /api/v1/jobs/{id}`
+
+Async режим включается query-параметром `async=1`:
+- `POST /api/v1/users?async=1` → `202 Accepted` + `Location: /api/v1/jobs/{id}`
+- `POST /api/v2/users?async=1` → `202 Accepted` + `Location: /api/v1/jobs/{id}`
+
+Статусы job: `queued`, `running`, `succeeded`, `failed`.
+
+Очередь bounded; политика переполнения: **fast-fail** → `503 Service Unavailable` (Problem+JSON).
+
 ### Health
 - `GET /livez` — liveness (процесс жив) → `200`
 - `GET /readyz` — readiness → `200` или `503`
@@ -79,7 +91,7 @@ HTTP_ADDR=":8080" HTTP_DEBUG=true go run ./cmd/api
 
 Readiness:
 - fail-fast `503`, если сервис помечен как not-ready (lifecycle)
-- далее выполняются checks (сейчас: `repo.Ping`) с дедлайном **200ms**
+- далее выполняются checks (сейчас: `repo.Ping`, `workerpool`) с дедлайном **200ms**
 
 ### Debug (только при `HTTP_DEBUG=true`)
 - `GET /debug/vars` — expvar (в т.ч. метрики HTTP)
@@ -98,12 +110,22 @@ Readiness:
 
 Метрики экспортируются через **expvar** на `/debug/vars` (если включён debug).
 
-Ключи:
+Ключи (HTTP):
 - `http_in_flight`
 - `http_requests_total` (ключ: `METHOD|/pattern|status`)
 - `http_errors_total` (ключ: `METHOD|/pattern`, только `>=500`)
 - `http_latency_ns_sum` (ключ: `METHOD|/pattern`)
 - `http_latency_ns_count` (ключ: `METHOD|/pattern`)
+
+Ключи (Step 4):
+- `queue_depth` (текущая глубина очереди)
+- `queue_rejections_total` (сколько раз enqueue был отклонён — очередь переполнена)
+- `jobs_total` (счётчики по статусам jobs: `queued`, `running`, `succeeded`, `failed`)
+- `job_processing_latency_ns_sum` (сумма длительности обработки jobs в наносекундах)
+- `job_processing_latency_ns_count` (кол-во обработанных jobs)
+- `rate_limited_total` (сколько запросов отклонено rate limiter’ом — `429`)
+- `bulkhead_in_flight` (текущие in-flight под bulkhead)
+- `bulkhead_rejections_total` (сколько запросов отклонено bulkhead’ом — `503`)
 
 Пример фрагмента `/debug/vars`:
 ```json
@@ -118,8 +140,10 @@ Readiness:
 
 - При `SIGINT` / `SIGTERM` сервис:
   1) помечает readiness как not-ready
-  2) вызывает `Server.Shutdown()` с дедлайном `HTTP_SHUTDOWN_TIMEOUT`
-  3) если дедлайн истёк → делает fallback `Server.Close()`
+  2) прекращает принимать новые async задания в очередь
+  3) вызывает `Server.Shutdown()` с дедлайном `HTTP_SHUTDOWN_TIMEOUT`
+  4) если дедлайн истёк → делает fallback `Server.Close()`
+  5) после остановки HTTP-сервера останавливается worker pool (без утечек горутин)
 
 ## Примеры запросов (curl)
 
@@ -159,4 +183,16 @@ curl.exe -i -X POST http://localhost:8080/api/v1/users -H "Content-Type: applica
 ```powershell
 curl.exe -i http://localhost:8080/debug/vars
 curl.exe -i http://localhost:8080/debug/pprof/
+```
+
+### Создать пользователя (v1, async job)
+```powershell
+curl.exe -i -X POST "http://localhost:8080/api/v1/users?async=1" `
+-H "Content-Type: application/json" `
+-d "{\"name\":\"Bob\",\"email\":\"bob@example.com\",\"age\":21}"
+```
+
+### Проверить статус job # job id берём из заголовка Location: /api/v1/jobs/{id}
+```powershell
+curl.exe -i http://localhost:8080/api/v1/jobs/1
 ```

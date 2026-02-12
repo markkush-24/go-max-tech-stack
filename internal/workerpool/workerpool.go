@@ -74,7 +74,7 @@ func (wp *WorkerPool) Stop(ctx context.Context) error {
 	wp.mu.Lock()
 	if !wp.running {
 		wp.mu.Unlock()
-		return ErrPoolNotRunning
+		return nil
 	}
 	cancel := wp.cancel
 	wp.running = false

@@ -14,9 +14,8 @@ var (
 )
 
 type Queue struct {
-	ch        chan WorkItem
-	closed    atomic.Bool
-	closeOnce sync.Once
+	ch     chan WorkItem
+	closed atomic.Bool
 }
 
 type WorkItem struct {

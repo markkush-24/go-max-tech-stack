@@ -35,13 +35,11 @@ func NewAPIServer(
 	}
 }
 
-// Run запускает HTTP-сервер и останавливает его по ctx.
-// Контекст сигналов и общий lifecycle приходят "сверху".
 func (s *APIServer) Run(ctx context.Context) error {
 	srv := &http.Server{
 		Addr:              s.config.HTTP.Addr,
 		Handler:           s.router,
-		ReadHeaderTimeout: s.config.HTTP.ReadHeaderTimeout, // caps time to read request headers (slowloris mitigation)
+		ReadHeaderTimeout: s.config.HTTP.ReadHeaderTimeout,
 		ReadTimeout:       s.config.HTTP.ReadTimeout,
 		WriteTimeout:      s.config.HTTP.WriteTimeout,
 		IdleTimeout:       s.config.HTTP.IdleTimeout,
@@ -50,12 +48,10 @@ func (s *APIServer) Run(ctx context.Context) error {
 
 	errCh := make(chan error, 1)
 
-	// Стартуем сервер в отдельной горутине.
 	go func() {
 		log.Printf("HTTP server listening on %s", s.config.HTTP.Addr)
 
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			// Ошибку отдаём наверх через канал — без os.Exit/log.Fatalf
 			errCh <- err
 		}
 		close(errCh)
@@ -64,7 +60,17 @@ func (s *APIServer) Run(ctx context.Context) error {
 	s.readiness.SetReady()
 	log.Println("Set ready true")
 
-	// Ждём либо остановки по контексту, либо ошибки сервера.
+	defer func() {
+		s.queue.StopAccepting()
+
+		stopCtx, cancel := context.WithTimeout(context.Background(), s.config.HTTP.ShutdownTimeout)
+		defer cancel()
+
+		if err := s.pool.Stop(stopCtx); err != nil {
+			log.Printf("worker pool stop: %v", err)
+		}
+	}()
+
 	select {
 	case <-ctx.Done():
 		log.Println("shutting down...")
@@ -86,23 +92,13 @@ func (s *APIServer) Run(ctx context.Context) error {
 				}
 
 				<-errCh
-				return nil // политика: таймаут — не “ошибка запуска”, мы уже остановились
+				return nil
 			}
 
-			// best-effort hard close, чтобы не оставлять хвосты
 			_ = srv.Close()
 			<-errCh
 
 			return err
-		}
-
-		poolCtx, cancelPool := context.WithTimeout(context.Background(), s.config.HTTP.ShutdownTimeout)
-		defer cancelPool()
-
-		if s.pool.IsRunning() {
-			if err := s.pool.Stop(poolCtx); err != nil {
-				log.Printf("worker pool stop: %v", err)
-			}
 		}
 
 		<-errCh
