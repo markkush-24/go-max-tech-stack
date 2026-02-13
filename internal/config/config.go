@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -37,12 +38,39 @@ type BulkheadConfig struct {
 	MaxParallel int
 }
 
+type OutboundTransportConfig struct {
+	IdleConnTimeout       time.Duration
+	MaxIdleConns          int
+	MaxIdleConnsPerHost   int
+	MaxConnsPerHost       int
+	TLSHandshakeTimeout   time.Duration
+	ResponseHeaderTimeout time.Duration
+}
+
+type OutboundRetryConfig struct {
+	MaxAttempts int
+	BaseDelay   time.Duration
+	MaxDelay    time.Duration
+}
+
+type OutboundProfileConfig struct {
+	BaseURL string
+	Timeout time.Duration
+}
+
+type OutboundConfig struct {
+	Profile   OutboundProfileConfig
+	Transport OutboundTransportConfig
+	Retry     OutboundRetryConfig
+}
+
 type Config struct {
 	HTTP     HTTPConfig
 	DB       DBConfig
 	Pool     WorkerPoolConfig
 	Limiter  RateLimiterConfig
 	Bulkhead BulkheadConfig
+	Outbound OutboundConfig
 }
 
 func defaultConfig() Config {
@@ -69,6 +97,25 @@ func defaultConfig() Config {
 		},
 		Bulkhead: BulkheadConfig{
 			MaxParallel: 1,
+		},
+		Outbound: OutboundConfig{
+			Profile: OutboundProfileConfig{
+				BaseURL: "http://localhost:8090",
+				Timeout: 1 * time.Second,
+			},
+			Transport: OutboundTransportConfig{
+				IdleConnTimeout:       90 * time.Second,
+				MaxIdleConns:          1000,
+				MaxIdleConnsPerHost:   1000,
+				MaxConnsPerHost:       0,
+				TLSHandshakeTimeout:   5 * time.Second,
+				ResponseHeaderTimeout: 1 * time.Second,
+			},
+			Retry: OutboundRetryConfig{
+				MaxAttempts: 1,
+				BaseDelay:   50 * time.Millisecond,
+				MaxDelay:    500 * time.Millisecond,
+			},
 		},
 	}
 }
@@ -139,6 +186,72 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
+	cfg.Outbound.Transport.IdleConnTimeout, err = lookupDurationPositive(
+		"OUTBOUND_TRANSPORT_IDLE_CONN_TIMEOUT", cfg.Outbound.Transport.IdleConnTimeout)
+	if err != nil {
+		return Config{}, err
+	}
+
+	cfg.Outbound.Transport.MaxIdleConns, err = lookupIntNonNegative(
+		"OUTBOUND_TRANSPORT_MAX_IDLE_CONNS", cfg.Outbound.Transport.MaxIdleConns)
+	if err != nil {
+		return Config{}, err
+	}
+
+	cfg.Outbound.Transport.MaxIdleConnsPerHost, err = lookupIntPositive(
+		"OUTBOUND_TRANSPORT_MAX_IDLE_CONNS_PER_HOST", cfg.Outbound.Transport.MaxIdleConnsPerHost)
+	if err != nil {
+		return Config{}, err
+	}
+
+	cfg.Outbound.Transport.MaxConnsPerHost, err = lookupIntNonNegative(
+		"OUTBOUND_TRANSPORT_MAX_CONNS_PER_HOST", cfg.Outbound.Transport.MaxConnsPerHost)
+	if err != nil {
+		return Config{}, err
+	}
+
+	cfg.Outbound.Transport.TLSHandshakeTimeout, err = lookupDurationPositive(
+		"OUTBOUND_TRANSPORT_TLS_HANDSHAKE_TIMEOUT", cfg.Outbound.Transport.TLSHandshakeTimeout)
+	if err != nil {
+		return Config{}, err
+	}
+
+	cfg.Outbound.Transport.ResponseHeaderTimeout, err = lookupDurationPositive(
+		"OUTBOUND_TRANSPORT_RESPONSE_HEADER_TIMEOUT", cfg.Outbound.Transport.ResponseHeaderTimeout)
+	if err != nil {
+		return Config{}, err
+	}
+
+	cfg.Outbound.Retry.MaxAttempts, err = lookupIntPositive(
+		"OUTBOUND_RETRY_MAX_ATTEMPTS", cfg.Outbound.Retry.MaxAttempts)
+	if err != nil {
+		return Config{}, err
+	}
+
+	cfg.Outbound.Retry.BaseDelay, err = lookupDurationPositive(
+		"OUTBOUND_RETRY_BASE_DELAY", cfg.Outbound.Retry.BaseDelay)
+	if err != nil {
+		return Config{}, err
+	}
+
+	cfg.Outbound.Retry.MaxDelay, err = lookupDurationPositive(
+		"OUTBOUND_RETRY_MAX_DELAY", cfg.Outbound.Retry.MaxDelay)
+	if err != nil {
+		return Config{}, err
+	}
+
+	cfg.Outbound.Profile.BaseURL, err = lookupURLAbsolute(
+		"OUTBOUND_PROFILE_BASE_URL", cfg.Outbound.Profile.BaseURL)
+	if err != nil {
+		return Config{}, err
+	}
+
+	cfg.Outbound.Profile.Timeout, err = lookupDurationPositive(
+		"OUTBOUND_PROFILE_TIMEOUT", cfg.Outbound.Profile.Timeout)
+	if err != nil {
+		return Config{}, err
+	}
+
 	return cfg, nil
 }
 
@@ -149,7 +262,7 @@ func lookupStringNonEmpty(key, def string) (string, error) {
 	}
 	v = strings.TrimSpace(v)
 	if v == "" {
-		return "", fmt.Errorf("%s is set but empty", key)
+		return "", fmt.Errorf("%s but empty", key)
 	}
 	return v, nil
 }
@@ -194,4 +307,47 @@ func lookupBool(key string, def bool) (bool, error) {
 		return false, fmt.Errorf("%s=%q: parse bool: %w", key, v, err)
 	}
 	return b, nil
+}
+
+func lookupURLAbsolute(key, def string) (string, error) {
+	v, ok := os.LookupEnv(key)
+	if !ok {
+		v = def
+	}
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return "", fmt.Errorf("%s is set but empty", key)
+	}
+
+	u, err := url.Parse(v)
+	if err != nil {
+		return "", fmt.Errorf("%s=%q: parse url: %w", key, v, err)
+	}
+
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return "", fmt.Errorf("%s=%q: scheme=%q: expected http or https", key, v, u.Scheme)
+	}
+	if u.Host == "" {
+		return "", fmt.Errorf("%s=%q: host is empty", key, v)
+	}
+
+	if u.Fragment != "" {
+		return "", fmt.Errorf("%s=%q: fragment is not allowed", key, v)
+	}
+
+	return strings.TrimRight(v, "/"), nil
+}
+func lookupIntNonNegative(key string, def int) (int, error) {
+	v, ok := os.LookupEnv(key)
+	if !ok {
+		return def, nil
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return 0, fmt.Errorf("%s=%q: parse int: %w", key, v, err)
+	}
+	if n < 0 {
+		return 0, fmt.Errorf("%s=%q: must be >= 0", key, v)
+	}
+	return n, nil
 }
