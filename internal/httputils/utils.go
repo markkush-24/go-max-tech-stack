@@ -14,6 +14,7 @@ import (
 )
 
 var rxUnknownField = regexp.MustCompile(`^json: unknown field "([^"]+)"$`) // эвристика: stdlib не даёт typed-ошибку
+var ErrNotImplemented = errors.New("not implemented yet")
 
 func ParseJSON(r io.Reader, dst any) error {
 	dec := json.NewDecoder(r)
@@ -60,6 +61,28 @@ func ParseJSON(r io.Reader, dst any) error {
 	}
 
 	return nil
+}
+
+func WriteNegotiated(w http.ResponseWriter, r *http.Request, status int, v any, msg any) error {
+	ct, err := AcceptHeader(r.Header.Get("Accept"))
+	if err != nil {
+		return err // в errmap -> 406
+	}
+	AddVary(w, "Accept")
+
+	switch ct {
+	case MediaTypeProtobuf:
+		return WriteProtobuf(w, status, msg)
+
+	case MediaTypeJSON:
+		return WriteJSON(w, status, v)
+	default:
+		return ErrNotAcceptable
+	}
+}
+
+func WriteProtobuf(w http.ResponseWriter, status int, msg any) error {
+	return ErrNotImplemented
 }
 
 func WriteJSON(w http.ResponseWriter, status int, v any) error {
@@ -180,4 +203,18 @@ func isLikelyEmail(s string) bool {
 	}
 
 	return true
+}
+
+func AddVary(w http.ResponseWriter, token string) {
+	h := w.Header()
+	existing := h.Values("Vary")
+	for _, v := range existing {
+		// "Vary" может быть списком
+		for _, part := range strings.Split(v, ",") {
+			if strings.EqualFold(strings.TrimSpace(part), token) {
+				return
+			}
+		}
+	}
+	h.Add("Vary", token)
 }

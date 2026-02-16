@@ -8,6 +8,8 @@ import (
 	"os/signal"
 	"pet-study/internal/metrics"
 	"pet-study/internal/middleware"
+	"pet-study/internal/outbound"
+	"pet-study/internal/outbound/httpclient"
 	"pet-study/internal/queue"
 	"pet-study/internal/store/jobrepo"
 	"syscall"
@@ -64,6 +66,12 @@ func run() error {
 		debugRouter = router.NewDebugRouter()
 	}
 
+	//Client-Transport
+	httpClient, _ := httpclient.New(cfg.Outbound)
+	clientImpl := outbound.NewClientImpl(cfg.Outbound.Profile.BaseURL, httpClient)
+	profileService := service.NewUserProfileService(userService, clientImpl, cfg.Outbound.Profile.Timeout)
+	profileHandler := routes.NewUsersProfileHandler(profileService)
+
 	limitedAPI := middleware.NewRateLimitedAPI(float64(cfg.Limiter.RPS), cfg.Limiter.BURST)
 	bulkhead := middleware.NewBulkhead(cfg.Bulkhead.MaxParallel)
 
@@ -73,7 +81,7 @@ func run() error {
 
 	jobsHandler := routes.NewJobHandler(jobService)
 
-	userRouter := router.NewRouter(userHandler, userHandlerV2, jobsHandler, limitedAPI, bulkhead)
+	userRouter := router.NewRouter(userHandler, userHandlerV2, jobsHandler, profileHandler, limitedAPI, bulkhead)
 
 	healthRouter := router.NewHealthRouter(readiness)
 	rootRouter := router.NewRoot(userRouter, healthRouter, debugRouter)

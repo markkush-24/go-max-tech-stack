@@ -6,8 +6,11 @@ import (
 	"mime"
 	"net/http"
 	"net/http/httptest"
+	"pet-study/internal/config"
 	"pet-study/internal/metrics"
 	"pet-study/internal/middleware"
+	"pet-study/internal/outbound"
+	"pet-study/internal/outbound/httpclient"
 	"pet-study/internal/queue"
 	"pet-study/internal/router"
 	"pet-study/internal/routes"
@@ -15,6 +18,7 @@ import (
 	"pet-study/internal/store/jobrepo"
 	"pet-study/internal/store/userrepo"
 	"testing"
+	"time"
 )
 
 type problem struct {
@@ -47,7 +51,16 @@ func newTestHandler(t *testing.T) http.Handler {
 
 	jh := routes.NewJobHandler(jobSvc)
 
-	return router.NewRouter(v1, v2, jh, lim, bh)
+	//config
+	cfg, _ := config.Load()
+
+	//Client-Transport
+	httpClient, _ := httpclient.New(cfg.Outbound)
+	clientImpl := outbound.NewClientImpl(cfg.Outbound.Profile.BaseURL, httpClient)
+	profileService := service.NewUserProfileService(svc, clientImpl, 1*time.Second)
+	ph := routes.NewUsersProfileHandler(profileService)
+
+	return router.NewRouter(v1, v2, jh, ph, lim, bh)
 }
 
 func decodeProblem(t *testing.T, rec *httptest.ResponseRecorder) problem {

@@ -4,8 +4,11 @@ import (
 	"mime"
 	"net/http"
 	"net/http/httptest"
+	"pet-study/internal/config"
 	"pet-study/internal/metrics"
 	"pet-study/internal/middleware"
+	"pet-study/internal/outbound"
+	"pet-study/internal/outbound/httpclient"
 	"pet-study/internal/queue"
 	"pet-study/internal/requestid"
 	"pet-study/internal/router"
@@ -15,6 +18,7 @@ import (
 	"pet-study/internal/store/userrepo"
 	"strconv"
 	"testing"
+	"time"
 )
 
 func TestRateLimiterRetryAfter(t *testing.T) {
@@ -35,7 +39,16 @@ func TestRateLimiterRetryAfter(t *testing.T) {
 
 	jh := routes.NewJobHandler(jobSvc)
 
-	userRouter := router.NewRouter(v1, v2, jh, lim, bh)
+	//config
+	cfg, _ := config.Load()
+
+	//Client-Transport
+	httpClient, _ := httpclient.New(cfg.Outbound)
+	clientImpl := outbound.NewClientImpl(cfg.Outbound.Profile.BaseURL, httpClient)
+	profileService := service.NewUserProfileService(userSvc, clientImpl, 1*time.Second)
+	ph := routes.NewUsersProfileHandler(profileService)
+
+	userRouter := router.NewRouter(v1, v2, jh, ph, lim, bh)
 
 	rootRouter := router.NewRoot(userRouter, http.NewServeMux(), nil)
 

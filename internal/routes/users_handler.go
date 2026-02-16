@@ -96,11 +96,11 @@ func (h *UsersHandler) GetByID(w http.ResponseWriter, r *http.Request, id int) e
 		return err
 	}
 
-	return httputils.WriteJSON(w, http.StatusOK, entity.UserDTO{
+	return httputils.WriteNegotiated(w, r, http.StatusOK, entity.UserDTO{
 		ID:    u.ID,
 		Name:  u.Name,
 		Email: u.Email,
-	})
+	}, nil)
 }
 
 func (h *UsersHandler) List(w http.ResponseWriter, r *http.Request) error {

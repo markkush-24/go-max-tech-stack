@@ -11,6 +11,7 @@ func NewRouter(
 	users httpapi.UsersAPI,
 	usersV2 httpapi.UsersAPI,
 	jobs httpapi.JobsAPI,
+	usersProfile httpapi.UsersProfileAPI,
 	limiter *middleware.RateLimitedAPI,
 	bulkhead *middleware.BulkheadAPI,
 ) http.Handler {
@@ -54,6 +55,23 @@ func NewRouter(
 		func(w http.ResponseWriter, r *http.Request) error {
 			if r.Method == http.MethodGet {
 				return getUserByID(w, r)
+			}
+			return &httputils.MethodNotAllowedError{Allow: "GET"}
+		})))
+
+	// users+profile GET
+	getUserProfile := func(w http.ResponseWriter, r *http.Request) error {
+		idStr := r.PathValue("id")
+		id, ok := httputils.ParsePositiveInt(idStr)
+		if !ok {
+			return &httputils.BadRequestError{Detail: "id must be a positive integer"}
+		}
+		return usersProfile.GetUserProfile(w, r, int64(id))
+	}
+	mux.Handle("/api/v1/users/{id}/profile", bulkhead.Bulkhead(limiter.RateLimiter(
+		func(w http.ResponseWriter, r *http.Request) error {
+			if r.Method == http.MethodGet {
+				return getUserProfile(w, r)
 			}
 			return &httputils.MethodNotAllowedError{Allow: "GET"}
 		})))

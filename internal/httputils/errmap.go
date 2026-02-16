@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"pet-study/internal/entity"
+	"pet-study/internal/outbound/profile"
 	"pet-study/internal/queue"
 	"pet-study/internal/service"
 	"strconv"
@@ -176,6 +177,50 @@ func MapError(r *http.Request, err error) MappedProblem {
 	if errors.Is(err, entity.ErrJobNotFound) {
 		return MappedProblem{
 			Problem: Problem{Status: http.StatusNotFound, Detail: "not found"},
+		}
+	}
+
+	if errors.Is(err, profile.ErrTimeout) {
+		return MappedProblem{
+			Problem: Problem{Status: http.StatusServiceUnavailable, Detail: "profile service timeout"},
+		}
+	}
+
+	if errors.Is(err, profile.ErrCanceled) {
+		return MappedProblem{
+			Problem: Problem{Status: http.StatusRequestTimeout, Detail: "request canceled"},
+		}
+	}
+
+	if errors.Is(err, profile.ErrUpstream5xx) {
+		return MappedProblem{
+			Problem: Problem{Status: http.StatusBadGateway, Detail: "profile service error"},
+		}
+	}
+
+	if errors.Is(err, profile.ErrUpstream4xx) {
+		return MappedProblem{
+			Problem: Problem{Status: http.StatusBadGateway, Detail: "profile service returned 4xx"},
+		}
+	}
+
+	if errors.Is(err, profile.ErrBadResponse) {
+		return MappedProblem{
+			Problem: Problem{Status: http.StatusBadGateway, Detail: "profile service bad response"},
+		}
+	}
+
+	if errors.Is(err, ErrNotImplemented) {
+		return MappedProblem{
+			Problem: Problem{Status: http.StatusNotImplemented, Detail: "protobuf response is not implemented yet"},
+		}
+	}
+
+	if errors.Is(err, ErrNotAcceptable) {
+		return MappedProblem{
+			Problem: Problem{
+				Status: http.StatusNotAcceptable,
+				Detail: "unsupported Accept header; supported: application/json, application/protobuf"},
 		}
 	}
 
