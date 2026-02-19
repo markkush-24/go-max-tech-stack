@@ -224,6 +224,14 @@ func MapError(r *http.Request, err error) MappedProblem {
 		}
 	}
 
+	if errors.Is(err, ErrProtobufUnavailable) {
+		return MappedProblem{
+			Problem: Problem{
+				Status: http.StatusInternalServerError,
+				Detail: "protobuf response is not available"},
+		}
+	}
+
 	var rle *RateLimitError
 
 	if errors.As(err, &rle) {

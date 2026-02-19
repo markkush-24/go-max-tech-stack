@@ -196,3 +196,93 @@ curl.exe -i -X POST "http://localhost:8080/api/v1/users?async=1" `
 ```powershell
 curl.exe -i http://localhost:8080/api/v1/jobs/1
 ```
+
+# Поддержка Protobuf (application/protobuf)
+
+Этот проект умеет отдавать ответы в формате **Protobuf** (в дополнение к JSON) через **content negotiation**:
+
+- JSON (по умолчанию): `Accept: application/json`
+- Protobuf: `Accept: application/protobuf` (также принимается `application/x-protobuf`)
+
+> Ошибки всегда возвращаются в формате **Problem+JSON** (`application/problem+json`) и не зависят от `Accept`.
+
+
+## Генерация `*.pb.go` из `.proto` на Windows
+
+### 1) Установить `protoc`
+
+**Вариант A — winget (рекомендуется):**
+```powershell
+winget install protobuf
+protoc --version
+```
+
+**Вариант B — ручная установка (если winget недоступен):**
+1. Скачай Windows-архив `protoc-*-win64.zip` из официальных релизов protobuf.
+2. Распакуй его, например в `C:\tools\protoc\`.
+3. Добавь `C:\tools\protoc\bin` в `PATH`.
+4. Проверь:
+```powershell
+protoc --version
+```
+
+
+### 2) Установить Go-плагин (`protoc-gen-go`)
+
+```powershell
+go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+```
+
+Убедись, что директория с Go-бинарниками находится в `PATH`, иначе `protoc` не найдёт `protoc-gen-go`:
+- `%GOBIN%`, если задан, иначе `%GOPATH%\bin`
+
+Проверка:
+```powershell
+protoc-gen-go --version
+```
+
+
+### 3) Сгенерировать Go-код
+
+Команду запускать из корня репозитория (там, где лежит `go.mod`):
+
+```powershell
+protoc -I . --go_out=. --go_opt=paths=source_relative internal/transport/pb/user.proto
+```
+
+Что означают флаги:
+- `-I .` задаёт корень импорта/поиска `.proto` файлов.
+- `--go_out=.` записывает сгенерированные файлы в репозиторий.
+- `--go_opt=paths=source_relative` кладёт `user.pb.go` рядом с `user.proto` (в той же относительной папке).
+
+
+### 4) Подтянуть зависимости модуля
+
+Если protobuf в репозитории подключаешь впервые, выполни:
+
+```powershell
+go get google.golang.org/protobuf@latest
+go mod tidy
+```
+
+
+### 5) Быстрая проверка
+
+```powershell
+go test ./...
+```
+
+
+## Быстрая проверка работы через HTTP
+
+Скачать protobuf-ответ (PowerShell):
+
+```powershell
+curl -H "Accept: application/protobuf" http://localhost:8080/api/v1/users/1 --output user.pb
+```
+
+Если получаешь `200 OK` и `Content-Type: application/protobuf`, значит negotiation для protobuf работает.
+
+После любых изменений в `internal/transport/pb/*.proto` повторяй команду генерации из шага (3)
+и коммить обновлённые `*.pb.go` (если вы храните generated-файлы в git).
+

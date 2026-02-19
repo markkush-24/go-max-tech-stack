@@ -5,16 +5,19 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"google.golang.org/protobuf/proto"
 	"io"
 	"mime"
 	"net/http"
 	"pet-study/internal/entity"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
 var rxUnknownField = regexp.MustCompile(`^json: unknown field "([^"]+)"$`) // эвристика: stdlib не даёт typed-ошибку
 var ErrNotImplemented = errors.New("not implemented yet")
+var ErrProtobufUnavailable = errors.New("protobuf response is not available")
 
 func ParseJSON(r io.Reader, dst any) error {
 	dec := json.NewDecoder(r)
@@ -63,7 +66,7 @@ func ParseJSON(r io.Reader, dst any) error {
 	return nil
 }
 
-func WriteNegotiated(w http.ResponseWriter, r *http.Request, status int, v any, msg any) error {
+func WriteNegotiated(w http.ResponseWriter, r *http.Request, status int, v any, msg proto.Message) error {
 	ct, err := AcceptHeader(r.Header.Get("Accept"))
 	if err != nil {
 		return err // в errmap -> 406
@@ -81,8 +84,24 @@ func WriteNegotiated(w http.ResponseWriter, r *http.Request, status int, v any, 
 	}
 }
 
-func WriteProtobuf(w http.ResponseWriter, status int, msg any) error {
-	return ErrNotImplemented
+func WriteProtobuf(w http.ResponseWriter, status int, msg proto.Message) error {
+	if msg == nil {
+		return ErrProtobufUnavailable
+	}
+
+	b, err := proto.Marshal(msg)
+	if err != nil {
+		return fmt.Errorf("marshal protobuf: %w", err)
+	}
+
+	w.Header().Set("Content-Type", MediaTypeProtobuf)
+	w.WriteHeader(status)
+
+	if _, err := w.Write(b); err != nil {
+		return fmt.Errorf("write protobuf response body: %w", err)
+	}
+
+	return nil
 }
 
 func WriteJSON(w http.ResponseWriter, status int, v any) error {
@@ -218,3 +237,115 @@ func AddVary(w http.ResponseWriter, token string) {
 	}
 	h.Add("Vary", token)
 }
+
+// UserETag строит weak ETag по (userID, version).
+// Формат opaque, но стабильный: W/"u:<id>:v:<version>"
+func UserETag(userID int, version int64) string {
+	var b strings.Builder
+	b.Grow(32)
+	b.WriteString(`W/"u:`)
+	b.WriteString(itoa(userID))
+	b.WriteString(`:v:`)
+	b.WriteString(i64toa(version))
+	b.WriteString(`"`)
+	return b.String()
+}
+
+// IfNoneMatchMatches возвращает true, если заголовок If-None-Match "матчит" текущий ETag.
+// Для GET валидации используется weak comparison: W/"x" и "x" считаем совпадающими.
+// Поддерживает:
+// - одиночный тег: If-None-Match: W/"..."
+// - список: If-None-Match: "a", W/"b"
+// - звездочку: If-None-Match: *
+func IfNoneMatchMatches(ifNoneMatch string, currentETag string) bool {
+	ifNoneMatch = strings.TrimSpace(ifNoneMatch)
+	if ifNoneMatch == "" {
+		return false
+	}
+	if ifNoneMatch == "*" {
+		return true
+	}
+
+	cur, ok := normalizeETag(currentETag)
+	if !ok {
+		return false
+	}
+
+	for _, cand := range splitHeaderList(ifNoneMatch) {
+		n, ok := normalizeETag(cand)
+		if !ok {
+			continue
+		}
+		if n == cur {
+			return true
+		}
+	}
+	return false
+}
+
+// normalizeETag приводит ETag к виду: "<opaque>" (в кавычках) без W/.
+// Возвращает (normalized, ok).
+func normalizeETag(v string) (string, bool) {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return "", false
+	}
+
+	// Убираем weak префикс
+	if len(v) >= 2 && (v[0] == 'W' || v[0] == 'w') && v[1] == '/' {
+		v = strings.TrimSpace(v[2:])
+	}
+
+	// Должно быть quoted-string: "..."
+	if len(v) < 2 || v[0] != '"' || v[len(v)-1] != '"' {
+		return "", false
+	}
+
+	// Для сравнения оставляем именно quoted токен целиком (включая кавычки)
+	// чтобы не париться с экранированием.
+	return v, true
+}
+
+// splitHeaderList делит заголовок на элементы по запятым, игнорируя запятые внутри кавычек.
+// Работает для типичных ETag-значений.
+func splitHeaderList(s string) []string {
+	var out []string
+
+	var start int
+	inQuote := false
+	escape := false
+
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+
+		if escape {
+			escape = false
+			continue
+		}
+
+		if c == '\\' && inQuote {
+			escape = true
+			continue
+		}
+		if c == '"' {
+			inQuote = !inQuote
+			continue
+		}
+		if c == ',' && !inQuote {
+			part := strings.TrimSpace(s[start:i])
+			if part != "" {
+				out = append(out, part)
+			}
+			start = i + 1
+		}
+	}
+
+	last := strings.TrimSpace(s[start:])
+	if last != "" {
+		out = append(out, last)
+	}
+	return out
+}
+
+func itoa(v int) string     { return strconv.Itoa(v) }
+func i64toa(v int64) string { return strconv.FormatInt(v, 10) }

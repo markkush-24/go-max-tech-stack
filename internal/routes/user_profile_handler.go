@@ -6,6 +6,7 @@ import (
 	"pet-study/internal/httputils"
 	"pet-study/internal/requestid"
 	"pet-study/internal/service"
+	"pet-study/internal/transport/pb"
 )
 
 type UsersProfileHandler struct {
@@ -34,5 +35,13 @@ func (h *UsersProfileHandler) GetUserProfile(
 			Bio:  p.Bio,
 			City: p.City,
 		},
-	}, nil)
+	}, &pb.UserProfile{
+		Id:    int64(u.ID),
+		Name:  u.Name,
+		Email: u.Email,
+		Profile: &pb.Profile{
+			Bio:  p.Bio,
+			City: p.City,
+		},
+	})
 }

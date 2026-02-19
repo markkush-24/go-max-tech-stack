@@ -58,10 +58,18 @@ func (r *MemoryUserRepository) Save(ctx context.Context, user *entity.User) erro
 	if user.ID == 0 {
 		user.ID = r.nextID
 		r.nextID++
+	} else {
+		if _, ok := r.users[user.ID]; ok {
+			return entity.ErrUserAlreadyExists
+		}
 	}
 
-	u := *user         // копия уже с корректным ID
-	r.users[u.ID] = &u // храним копию
+	if user.Version == 0 {
+		user.Version = 1
+	}
+
+	stored := *user
+	r.users[stored.ID] = &stored
 	return nil
 }
 
@@ -86,4 +94,28 @@ func (r *MemoryUserRepository) ExistsByEmail(ctx context.Context, email string) 
 		}
 	}
 	return false, nil
+}
+
+func (r *MemoryUserRepository) Update(ctx context.Context, id int, u *entity.User) (*entity.User, error) {
+	r.mux.Lock()
+	defer r.mux.Unlock()
+
+	prev, ok := r.users[id]
+	if !ok {
+		return nil, entity.ErrUserNotFound
+	}
+
+	next := entity.User{
+		ID:      id,
+		Name:    u.Name,
+		Age:     u.Age,
+		Email:   u.Email,
+		Version: prev.Version + 1,
+	}
+
+	stored := next
+	r.users[id] = &stored
+
+	out := stored
+	return &out, nil
 }

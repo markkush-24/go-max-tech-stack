@@ -1,10 +1,11 @@
 package entity
 
 type User struct {
-	ID    int    `json:"id"`
-	Name  string `json:"name"`
-	Age   int    `json:"age,omitempty"`
-	Email string `json:"email"`
+	ID      int    `json:"id"`
+	Name    string `json:"name"`
+	Age     int    `json:"age,omitempty"`
+	Email   string `json:"email"`
+	Version int64  `json:"-"`
 }
 type UserDTO struct {
 	ID    int    `json:"id"`

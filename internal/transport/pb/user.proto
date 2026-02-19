@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+package pb;
+
+option go_package = "pet-study/internal/transport/pb;pb";
+
+message User {
+int64 id = 1;
+string name = 2;
+string email = 3;
+}
+
+message Profile {
+string bio = 1;
+string city = 2;
+}
+
+message UserProfile {
+int64 id = 1;
+string name = 2;
+string email = 3;
+Profile profile = 4;
+}

@@ -9,6 +9,7 @@ import (
 	"pet-study/internal/metrics"
 	"pet-study/internal/queue"
 	"pet-study/internal/service"
+	"pet-study/internal/transport/pb"
 )
 
 type UsersHandler struct {
@@ -96,11 +97,27 @@ func (h *UsersHandler) GetByID(w http.ResponseWriter, r *http.Request, id int) e
 		return err
 	}
 
-	return httputils.WriteNegotiated(w, r, http.StatusOK, entity.UserDTO{
-		ID:    u.ID,
-		Name:  u.Name,
-		Email: u.Email,
-	}, nil)
+	etag := httputils.UserETag(u.ID, u.Version)
+	w.Header().Set("ETag", etag)
+
+	if httputils.IfNoneMatchMatches(r.Header.Get("If-None-Match"), etag) {
+		httputils.AddVary(w, "Accept")
+		w.WriteHeader(http.StatusNotModified)
+		return nil
+	}
+
+	return httputils.WriteNegotiated(w, r, http.StatusOK,
+		entity.UserDTO{
+			ID:    u.ID,
+			Name:  u.Name,
+			Email: u.Email,
+		},
+		&pb.User{
+			Id:    int64(u.ID),
+			Name:  u.Name,
+			Email: u.Email,
+		},
+	)
 }
 
 func (h *UsersHandler) List(w http.ResponseWriter, r *http.Request) error {
