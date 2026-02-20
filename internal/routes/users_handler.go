@@ -102,10 +102,12 @@ func (h *UsersHandler) GetByID(w http.ResponseWriter, r *http.Request, id int) e
 
 	if httputils.IfNoneMatchMatches(r.Header.Get("If-None-Match"), etag) {
 		httputils.AddVary(w, "Accept")
+		w.Header().Set("Cache-Control", httputils.CacheControlParams)
 		w.WriteHeader(http.StatusNotModified)
 		return nil
 	}
 
+	w.Header().Set("Cache-Control", httputils.CacheControlParams)
 	return httputils.WriteNegotiated(w, r, http.StatusOK,
 		entity.UserDTO{
 			ID:    u.ID,

@@ -11,6 +11,7 @@ const (
 	MediaTypeJSON      = "application/json"
 	MediaTypeProtobuf  = "application/protobuf"   // canonical
 	MediaTypeXProtobuf = "application/x-protobuf" // alias
+	CacheControlParams = "private, max-age=60"
 )
 
 var ErrNotAcceptable = errors.New("unsupported Accept header; supported: application/json, application/protobuf")

@@ -4,29 +4,37 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strconv"
+
 	"pet-study/internal/outbound/profile"
 	"pet-study/internal/requestid"
 )
 
 type ClientImpl struct {
-	baseURL string
-	http    *http.Client
+	base *url.URL
+	http *http.Client
 }
 
 func NewClientImpl(baseURL string, http *http.Client) *ClientImpl {
-	return &ClientImpl{baseURL: baseURL, http: http}
+	u, _ := url.Parse(baseURL)
+	return &ClientImpl{base: u, http: http}
 }
 
 func (ci *ClientImpl) FetchProfile(ctx context.Context, userID int64, requestID string) (profile.Profile, error) {
+	if ci.base == nil {
+		return profile.Profile{}, &profile.Error{Kind: profile.ErrBadResponse, Cause: errors.New("base url is nil")}
+	}
 
-	url := ci.baseURL + fmt.Sprintf("/profiles/%d", userID)
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	urlStr := ci.base.JoinPath("profiles", strconv.FormatInt(userID, 10)).String()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, urlStr, nil)
 	if err != nil {
 		return profile.Profile{}, &profile.Error{Kind: profile.ErrBadResponse, Cause: err}
 	}
+
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set(requestid.HeaderName, requestID)
 
@@ -38,14 +46,14 @@ func (ci *ClientImpl) FetchProfile(ctx context.Context, userID int64, requestID 
 		if errors.Is(err, context.Canceled) {
 			return profile.Profile{}, &profile.Error{Kind: profile.ErrCanceled, Cause: err}
 		}
-		return profile.Profile{}, &profile.Error{Kind: profile.ErrUpstream5xx, Cause: err}
+		return profile.Profile{}, &profile.Error{Kind: profile.ErrNetwork, Cause: err}
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		_, _ = io.Copy(io.Discard, resp.Body)
-		code := resp.StatusCode
 
+		code := resp.StatusCode
 		if code >= 500 {
 			return profile.Profile{}, &profile.Error{Kind: profile.ErrUpstream5xx, Status: code}
 		}
@@ -56,17 +64,12 @@ func (ci *ClientImpl) FetchProfile(ctx context.Context, userID int64, requestID 
 	}
 
 	var p profile.Profile
-
 	dec := json.NewDecoder(resp.Body)
 	dec.DisallowUnknownFields()
 
 	if err := dec.Decode(&p); err != nil {
 		_, _ = io.Copy(io.Discard, resp.Body)
-		return profile.Profile{}, &profile.Error{
-			Kind:   profile.ErrBadResponse,
-			Status: resp.StatusCode,
-			Cause:  err,
-		}
+		return profile.Profile{}, &profile.Error{Kind: profile.ErrParse, Status: resp.StatusCode, Cause: err}
 	}
 
 	return p, nil

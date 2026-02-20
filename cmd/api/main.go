@@ -68,8 +68,9 @@ func run() error {
 
 	//Client-Transport
 	httpClient, _ := httpclient.New(cfg.Outbound)
-	clientImpl := outbound.NewClientImpl(cfg.Outbound.Profile.BaseURL, httpClient)
-	profileService := service.NewUserProfileService(userService, clientImpl, cfg.Outbound.Profile.Timeout)
+	rawProfileClient := outbound.NewClientImpl(cfg.Outbound.Profile.BaseURL, httpClient)
+	profileClient := outbound.NewInstrumentedProfileClient(cfg.Outbound.Profile.BaseURL, rawProfileClient, log.Default())
+	profileService := service.NewUserProfileService(userService, profileClient, cfg.Outbound.Profile.Timeout)
 	profileHandler := routes.NewUsersProfileHandler(profileService)
 
 	limitedAPI := middleware.NewRateLimitedAPI(float64(cfg.Limiter.RPS), cfg.Limiter.BURST)

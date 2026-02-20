@@ -232,6 +232,18 @@ func MapError(r *http.Request, err error) MappedProblem {
 		}
 	}
 
+	if errors.Is(err, profile.ErrNetwork) {
+		return MappedProblem{
+			Problem: Problem{Status: http.StatusServiceUnavailable, Detail: "profile service unavailable"},
+		}
+	}
+
+	if errors.Is(err, profile.ErrParse) {
+		return MappedProblem{
+			Problem: Problem{Status: http.StatusBadGateway, Detail: "profile service parse error"},
+		}
+	}
+
 	var rle *RateLimitError
 
 	if errors.As(err, &rle) {

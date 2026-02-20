@@ -8,8 +8,10 @@ import (
 var (
 	ErrTimeout     = errors.New("timeout")
 	ErrCanceled    = errors.New("canceled")
+	ErrNetwork     = errors.New("network")
 	ErrUpstream5xx = errors.New("upstream 5xx")
 	ErrUpstream4xx = errors.New("upstream 4xx")
+	ErrParse       = errors.New("parse")
 	ErrBadResponse = errors.New("bad response")
 )
 
@@ -45,10 +47,14 @@ func KindLabel(err error) string {
 		return "timeout"
 	case errors.Is(err, ErrCanceled):
 		return "canceled"
+	case errors.Is(err, ErrNetwork):
+		return "network"
 	case errors.Is(err, ErrUpstream5xx):
 		return "5xx"
 	case errors.Is(err, ErrUpstream4xx):
 		return "4xx"
+	case errors.Is(err, ErrParse):
+		return "parse"
 	case errors.Is(err, ErrBadResponse):
 		return "bad_response"
 	default:
