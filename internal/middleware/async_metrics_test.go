@@ -7,21 +7,8 @@ import (
 	"expvar"
 	"fmt"
 	"net/http"
-	"net/http/httptest"
-	"pet-study/internal/config"
 	"pet-study/internal/entity"
-	"pet-study/internal/health"
-	"pet-study/internal/metrics"
-	"pet-study/internal/middleware"
-	"pet-study/internal/outbound"
-	"pet-study/internal/outbound/httpclient"
-	"pet-study/internal/queue"
-	"pet-study/internal/requestid"
-	"pet-study/internal/router"
-	"pet-study/internal/routes"
-	"pet-study/internal/service"
-	"pet-study/internal/store/jobrepo"
-	"pet-study/internal/store/userrepo"
+	"pet-study/internal/testkit"
 	"pet-study/internal/workerpool"
 	"strconv"
 	"strings"
@@ -30,60 +17,14 @@ import (
 )
 
 func TestIncreaseJobAsyncMetricsWithLatency(t *testing.T) {
-	userRepo := userrepo.NewMemoryUserRepository()
-	jobRepo := jobrepo.NewMemoryJobRepository()
+	server, app := testkit.NewServer(t)
 
-	userSvc := service.NewUserService(userRepo)
-	jobSvc := service.NewJobService(jobRepo)
-
-	// Metrics registry
-	m := metrics.DefaultHTTP()
-
-	q := queue.New(1)
-	pool := workerpool.NewWorkerPool(q, jobSvc, userSvc, m)
+	pool := workerpool.NewWorkerPool(app.Q, app.JobSvc, app.UserSvc, app.M)
 	err := pool.Start(1)
 	if err != nil {
 		t.Fatalf("start workerpool: %v", err)
 	}
 
-	readiness := health.NewReadiness(
-		health.Check{Name: "repo", Fn: userRepo.Ping},
-		health.Check{Name: "workerpool", Fn: pool.CheckRunning})
-
-	v1 := routes.NewUserHandler(userSvc, jobSvc, q, m)
-	v2 := routes.NewUserV2Handler(userSvc, jobSvc, q, m)
-
-	lim := middleware.NewRateLimitedAPI(1e9, 1e9)
-	bh := middleware.NewBulkhead(100)
-
-	jh := routes.NewJobHandler(jobSvc)
-
-	//config
-	cfg, _ := config.Load()
-
-	//Client-Transport
-	httpClient, _ := httpclient.New(cfg.Outbound)
-	clientImpl := outbound.NewClientImpl(cfg.Outbound.Profile.BaseURL, httpClient)
-	profileService := service.NewUserProfileService(userSvc, clientImpl, 1*time.Second)
-	ph := routes.NewUsersProfileHandler(profileService)
-
-	userRouter := router.NewRouter(v1, v2, jh, ph, lim, bh)
-
-	healthRouter := router.NewHealthRouter(readiness)
-	rootRouter := router.NewRoot(userRouter, healthRouter, nil)
-
-	// Middleware chain (outer -> inner):
-	// RequestID -> Metrics -> Logger -> Recover -> Router
-	handler := rootRouter
-	handler = middleware.Recover(handler) // inner: чтобы Logger/Metrics увидели 500 при panic в Router
-	handler = middleware.Logger(handler)
-	handler = middleware.Metrics(m)(handler)
-	handler = middleware.Recover(handler) // outer: ловит panic в Logger/Metrics
-	handler = requestid.RequestIDMiddleware(handler)
-
-	server := httptest.NewServer(handler)
-
-	t.Cleanup(server.Close)
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()

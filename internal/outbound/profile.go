@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -18,9 +19,8 @@ type ClientImpl struct {
 	http *http.Client
 }
 
-func NewClientImpl(baseURL string, http *http.Client) *ClientImpl {
-	u, _ := url.Parse(baseURL)
-	return &ClientImpl{base: u, http: http}
+func NewClientImpl(baseURL *url.URL, http *http.Client) *ClientImpl {
+	return &ClientImpl{base: baseURL, http: http}
 }
 
 func (ci *ClientImpl) FetchProfile(ctx context.Context, userID int64, requestID string) (profile.Profile, error) {
@@ -40,11 +40,11 @@ func (ci *ClientImpl) FetchProfile(ctx context.Context, userID int64, requestID 
 
 	resp, err := ci.http.Do(req)
 	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) {
-			return profile.Profile{}, &profile.Error{Kind: profile.ErrTimeout, Cause: err}
-		}
 		if errors.Is(err, context.Canceled) {
 			return profile.Profile{}, &profile.Error{Kind: profile.ErrCanceled, Cause: err}
+		}
+		if errors.Is(err, context.DeadlineExceeded) || isTimeout(err) {
+			return profile.Profile{}, &profile.Error{Kind: profile.ErrTimeout, Cause: err}
 		}
 		return profile.Profile{}, &profile.Error{Kind: profile.ErrNetwork, Cause: err}
 	}
@@ -71,6 +71,18 @@ func (ci *ClientImpl) FetchProfile(ctx context.Context, userID int64, requestID 
 		_, _ = io.Copy(io.Discard, resp.Body)
 		return profile.Profile{}, &profile.Error{Kind: profile.ErrParse, Status: resp.StatusCode, Cause: err}
 	}
-
+	_, _ = io.Copy(io.Discard, resp.Body)
 	return p, nil
+}
+
+func isTimeout(err error) bool {
+	var ue *url.Error
+	if errors.As(err, &ue) && ue.Timeout() {
+		return true
+	}
+	var ne net.Error
+	if errors.As(err, &ne) && ne.Timeout() {
+		return true
+	}
+	return false
 }

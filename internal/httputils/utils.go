@@ -16,7 +16,6 @@ import (
 )
 
 var rxUnknownField = regexp.MustCompile(`^json: unknown field "([^"]+)"$`) // эвристика: stdlib не даёт typed-ошибку
-var ErrNotImplemented = errors.New("not implemented yet")
 var ErrProtobufUnavailable = errors.New("protobuf response is not available")
 
 func ParseJSON(r io.Reader, dst any) error {

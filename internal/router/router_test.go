@@ -6,19 +6,8 @@ import (
 	"mime"
 	"net/http"
 	"net/http/httptest"
-	"pet-study/internal/config"
-	"pet-study/internal/metrics"
-	"pet-study/internal/middleware"
-	"pet-study/internal/outbound"
-	"pet-study/internal/outbound/httpclient"
-	"pet-study/internal/queue"
-	"pet-study/internal/router"
-	"pet-study/internal/routes"
-	"pet-study/internal/service"
-	"pet-study/internal/store/jobrepo"
-	"pet-study/internal/store/userrepo"
+	"pet-study/internal/testkit"
 	"testing"
-	"time"
 )
 
 type problem struct {
@@ -28,39 +17,6 @@ type problem struct {
 	Detail        string         `json:"detail"`
 	Instance      string         `json:"instance"`
 	InvalidParams []invalidParam `json:"invalid_params,omitempty"`
-}
-
-func newTestHandler(t *testing.T) http.Handler {
-	t.Helper()
-
-	repo := userrepo.NewMemoryUserRepository()
-	repoJob := jobrepo.NewMemoryJobRepository()
-	q := queue.New(10)
-
-	// Metrics registry
-	m := metrics.DefaultHTTP()
-
-	lim := middleware.NewRateLimitedAPI(float64(10), 5)
-	bh := middleware.NewBulkhead(1)
-
-	svc := service.NewUserService(repo)
-	jobSvc := service.NewJobService(repoJob)
-
-	v1 := routes.NewUserHandler(svc, jobSvc, q, m)
-	v2 := routes.NewUserV2Handler(svc, jobSvc, q, m)
-
-	jh := routes.NewJobHandler(jobSvc)
-
-	//config
-	cfg, _ := config.Load()
-
-	//Client-Transport
-	httpClient, _ := httpclient.New(cfg.Outbound)
-	clientImpl := outbound.NewClientImpl(cfg.Outbound.Profile.BaseURL, httpClient)
-	profileService := service.NewUserProfileService(svc, clientImpl, 1*time.Second)
-	ph := routes.NewUsersProfileHandler(profileService)
-
-	return router.NewRouter(v1, v2, jh, ph, lim, bh)
 }
 
 func decodeProblem(t *testing.T, rec *httptest.ResponseRecorder) problem {
@@ -73,7 +29,6 @@ func decodeProblem(t *testing.T, rec *httptest.ResponseRecorder) problem {
 }
 
 func TestRouting_StatusCodes(t *testing.T) {
-	h := newTestHandler(t)
 
 	tests := []struct {
 		name   string
@@ -94,7 +49,7 @@ func TestRouting_StatusCodes(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			req := httptest.NewRequest(tt.method, tt.path, nil)
 			rec := httptest.NewRecorder()
-
+			h, _ := testkit.NewUserRouter(t)
 			h.ServeHTTP(rec, req)
 
 			if rec.Code != tt.want {
@@ -105,7 +60,6 @@ func TestRouting_StatusCodes(t *testing.T) {
 }
 
 func TestMethodNotAllowed_HasAllowHeader(t *testing.T) {
-	h := newTestHandler(t)
 
 	tests := []struct {
 		name      string
@@ -123,6 +77,7 @@ func TestMethodNotAllowed_HasAllowHeader(t *testing.T) {
 			req := httptest.NewRequest(tt.method, tt.path, nil)
 			rec := httptest.NewRecorder()
 
+			h, _ := testkit.NewUserRouter(t)
 			h.ServeHTTP(rec, req)
 
 			if rec.Code != http.StatusMethodNotAllowed {
@@ -143,8 +98,6 @@ func TestMethodNotAllowed_HasAllowHeader(t *testing.T) {
 }
 
 func TestDecodeErrors_ReturnProblemJSON(t *testing.T) {
-	h := newTestHandler(t)
-
 	tests := []struct {
 		name   string
 		path   string
@@ -166,6 +119,7 @@ func TestDecodeErrors_ReturnProblemJSON(t *testing.T) {
 			req.Header.Set("Content-Type", "application/json")
 			rec := httptest.NewRecorder()
 
+			h, _ := testkit.NewUserRouter(t)
 			h.ServeHTTP(rec, req)
 
 			if rec.Code != tt.want {
@@ -188,8 +142,6 @@ func TestDecodeErrors_ReturnProblemJSON(t *testing.T) {
 	}
 }
 func TestPayloadTooLarge_Return413Problem(t *testing.T) {
-	h := newTestHandler(t)
-
 	// 70KB строка
 	big := bytes.Repeat([]byte("a"), 70_000)
 	body := append([]byte(`{"name":"`), big...)
@@ -199,6 +151,7 @@ func TestPayloadTooLarge_Return413Problem(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 
+	h, _ := testkit.NewUserRouter(t)
 	h.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusRequestEntityTooLarge {
@@ -219,12 +172,11 @@ type invalidParam struct {
 }
 
 func TestValidation_Return422WithInvalidParams(t *testing.T) {
-	h := newTestHandler(t)
-
 	req := httptest.NewRequest("POST", "/api/v1/users", bytes.NewBufferString(`{"name":"","email":"abc","age":-1}`))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 
+	h, _ := testkit.NewUserRouter(t)
 	h.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusUnprocessableEntity {
@@ -240,12 +192,11 @@ func TestValidation_Return422WithInvalidParams(t *testing.T) {
 	}
 }
 func TestUnsupportedMediaType_Return415Problem(t *testing.T) {
-	h := newTestHandler(t)
-
 	req := httptest.NewRequest("POST", "/api/v1/users", bytes.NewBufferString(`{"name":"a","email":"a@b.c"}`))
 	req.Header.Set("Content-Type", "text/plain")
 	rec := httptest.NewRecorder()
 
+	h, _ := testkit.NewUserRouter(t)
 	h.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusUnsupportedMediaType {

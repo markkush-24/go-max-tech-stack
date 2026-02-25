@@ -18,15 +18,11 @@ type InstrumentedProfileClient struct {
 	l    *log.Logger
 }
 
-func NewInstrumentedProfileClient(baseURL string, next profile.Client, l *log.Logger) *InstrumentedProfileClient {
-	host := ""
-	if u, err := url.Parse(baseURL); err == nil {
-		host = u.Host
-	}
+func NewInstrumentedProfileClient(baseURL *url.URL, next profile.Client, l *log.Logger) *InstrumentedProfileClient {
 	return &InstrumentedProfileClient{
 		next: next,
-		m:    metrics.DefaultOutbound(), // регистрирует expvar мапы сразу
-		host: host,
+		m:    metrics.DefaultOutbound(),
+		host: baseURL.Host,
 		l:    l,
 	}
 }

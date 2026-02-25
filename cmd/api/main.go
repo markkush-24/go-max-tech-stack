@@ -50,7 +50,7 @@ func run() error {
 	jobService := service.NewJobService(jobRepository)
 
 	//Async
-	q := queue.New(10)
+	q := queue.New(cfg.Pool.QueueSize)
 	pool := workerpool.NewWorkerPool(q, jobService, userService, m)
 	poolErr := pool.Start(cfg.Pool.Workers)
 	if poolErr != nil {
@@ -67,13 +67,22 @@ func run() error {
 	}
 
 	//Client-Transport
-	httpClient, _ := httpclient.New(cfg.Outbound)
-	rawProfileClient := outbound.NewClientImpl(cfg.Outbound.Profile.BaseURL, httpClient)
-	profileClient := outbound.NewInstrumentedProfileClient(cfg.Outbound.Profile.BaseURL, rawProfileClient, log.Default())
+	httpClient, tr := httpclient.New(cfg.Outbound)
+	defer tr.CloseIdleConnections()
+	rawProfileClient := outbound.NewClientImpl(cfg.Outbound.Profile.Base, httpClient)
+	instrumented := outbound.NewInstrumentedProfileClient(cfg.Outbound.Profile.Base, rawProfileClient, log.Default())
+
+	profileClient := outbound.NewRetryingProfileClient(
+		cfg.Outbound.Retry.MaxAttempts,
+		cfg.Outbound.Retry.BaseDelay,
+		cfg.Outbound.Retry.MaxDelay,
+		instrumented,
+	)
+
 	profileService := service.NewUserProfileService(userService, profileClient, cfg.Outbound.Profile.Timeout)
 	profileHandler := routes.NewUsersProfileHandler(profileService)
 
-	limitedAPI := middleware.NewRateLimitedAPI(float64(cfg.Limiter.RPS), cfg.Limiter.BURST)
+	limitedAPI := middleware.NewRateLimitedAPI(float64(cfg.Limiter.RPS), cfg.Limiter.Burst)
 	bulkhead := middleware.NewBulkhead(cfg.Bulkhead.MaxParallel)
 
 	// Routers

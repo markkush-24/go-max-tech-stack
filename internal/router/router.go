@@ -60,21 +60,23 @@ func NewRouter(
 		})))
 
 	// users+profile GET
-	getUserProfile := func(w http.ResponseWriter, r *http.Request) error {
-		idStr := r.PathValue("id")
-		id, ok := httputils.ParsePositiveInt(idStr)
-		if !ok {
-			return &httputils.BadRequestError{Detail: "id must be a positive integer"}
-		}
-		return usersProfile.GetUserProfile(w, r, int64(id))
-	}
-	mux.Handle("/api/v1/users/{id}/profile", bulkhead.Bulkhead(limiter.RateLimiter(
-		func(w http.ResponseWriter, r *http.Request) error {
-			if r.Method == http.MethodGet {
-				return getUserProfile(w, r)
+	if usersProfile != nil {
+		getUserProfile := func(w http.ResponseWriter, r *http.Request) error {
+			idStr := r.PathValue("id")
+			id, ok := httputils.ParsePositiveInt(idStr)
+			if !ok {
+				return &httputils.BadRequestError{Detail: "id must be a positive integer"}
 			}
-			return &httputils.MethodNotAllowedError{Allow: "GET"}
-		})))
+			return usersProfile.GetUserProfile(w, r, int64(id))
+		}
+		mux.Handle("/api/v1/users/{id}/profile", bulkhead.Bulkhead(limiter.RateLimiter(
+			func(w http.ResponseWriter, r *http.Request) error {
+				if r.Method == http.MethodGet {
+					return getUserProfile(w, r)
+				}
+				return &httputils.MethodNotAllowedError{Allow: "GET"}
+			})))
+	}
 
 	// 405 для коллекции
 	mux.Handle("/api/v1/users", bulkhead.Bulkhead(limiter.RateLimiter(

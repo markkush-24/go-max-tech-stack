@@ -1,0 +1,152 @@
+package testkit
+
+import (
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	"pet-study/internal/httpapi"
+	"pet-study/internal/metrics"
+	"pet-study/internal/middleware"
+	"pet-study/internal/queue"
+	"pet-study/internal/requestid"
+	"pet-study/internal/router"
+	"pet-study/internal/routes"
+	"pet-study/internal/service"
+	"pet-study/internal/store/jobrepo"
+	"pet-study/internal/store/userrepo"
+)
+
+type App struct {
+	UserRepo *userrepo.MemoryUserRepository
+	JobRepo  *jobrepo.MemoryJobRepository
+
+	UserSvc *service.UserService
+	JobSvc  *service.JobService
+
+	Q *queue.Queue
+	M *metrics.HTTPMetrics
+
+	Limiter  *middleware.RateLimitedAPI
+	Bulkhead *middleware.BulkheadAPI
+
+	V1 httpapi.UsersAPI
+	V2 httpapi.UsersAPI
+	JH httpapi.JobsAPI
+}
+
+type options struct {
+	queueSize    int
+	rps          float64
+	burst        int
+	bulkhead     int
+	usersProfile httpapi.UsersProfileAPI
+	health       http.Handler
+	debug        http.Handler
+}
+
+type Option func(*options)
+
+func WithQueueSize(n int) Option {
+	return func(o *options) { o.queueSize = n }
+}
+func WithRateLimit(rps float64, burst int) Option {
+	return func(o *options) { o.rps, o.burst = rps, burst }
+}
+func WithBulkhead(maxParallel int) Option {
+	return func(o *options) { o.bulkhead = maxParallel }
+}
+func WithUsersProfile(ph httpapi.UsersProfileAPI) Option {
+	return func(o *options) { o.usersProfile = ph }
+}
+func WithHealth(h http.Handler) Option {
+	return func(o *options) { o.health = h }
+}
+func WithDebug(h http.Handler) Option {
+	return func(o *options) { o.debug = h }
+}
+
+func defaultOptions() options {
+	return options{
+		queueSize: 10,
+		// ВАЖНО: дефолт широкий, чтобы tests не флейкали на 429.
+		rps:      1000,
+		burst:    1000,
+		bulkhead: 1000,
+
+		health: http.NewServeMux(),
+		debug:  nil,
+	}
+}
+
+func newApp(t *testing.T, opts ...Option) (*App, options) {
+	t.Helper()
+
+	o := defaultOptions()
+	for _, opt := range opts {
+		opt(&o)
+	}
+
+	userRepo := userrepo.NewMemoryUserRepository()
+	jobRepo := jobrepo.NewMemoryJobRepository()
+
+	userSvc := service.NewUserService(userRepo)
+	jobSvc := service.NewJobService(jobRepo)
+
+	q := queue.New(o.queueSize)
+	m := metrics.DefaultHTTP()
+
+	lim := middleware.NewRateLimitedAPI(o.rps, o.burst)
+	bh := middleware.NewBulkhead(o.bulkhead)
+
+	v1 := routes.NewUserHandler(userSvc, jobSvc, q, m)
+	v2 := routes.NewUserV2Handler(userSvc, jobSvc, q, m)
+	jh := routes.NewJobHandler(jobSvc)
+
+	app := &App{
+		UserRepo: userRepo,
+		JobRepo:  jobRepo,
+		UserSvc:  userSvc,
+		JobSvc:   jobSvc,
+		Q:        q,
+		M:        m,
+		Limiter:  lim,
+		Bulkhead: bh,
+		V1:       v1,
+		V2:       v2,
+		JH:       jh,
+	}
+	return app, o
+}
+
+// NewUserRouter — для tests через httptest.NewRecorder
+func NewUserRouter(t *testing.T, opts ...Option) (http.Handler, *App) {
+	t.Helper()
+
+	app, o := newApp(t, opts...)
+	userRouter := router.NewRouter(app.V1, app.V2, app.JH, o.usersProfile, app.Limiter, app.Bulkhead)
+	return userRouter, app
+}
+
+// NewServer — полный стек: root router + middleware chain + httptest.Server
+func NewServer(t *testing.T, opts ...Option) (*httptest.Server, *App) {
+	t.Helper()
+
+	app, o := newApp(t, opts...)
+	userRouter := router.NewRouter(app.V1, app.V2, app.JH, o.usersProfile, app.Limiter, app.Bulkhead)
+
+	root := router.NewRoot(userRouter, o.health, o.debug)
+
+	// Chain как в main
+	var h http.Handler = root
+	h = middleware.Recover(h)
+	h = middleware.Logger(h)
+	h = middleware.Metrics(app.M)(h)
+	h = middleware.Recover(h)
+	h = requestid.RequestIDMiddleware(h)
+
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+
+	return srv, app
+}

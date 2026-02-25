@@ -8,12 +8,9 @@ import (
 	"mime"
 	"net/http"
 	"net/http/httptest"
-	"pet-study/internal/config"
 	"pet-study/internal/health"
 	"pet-study/internal/metrics"
 	"pet-study/internal/middleware"
-	"pet-study/internal/outbound"
-	"pet-study/internal/outbound/httpclient"
 	"pet-study/internal/queue"
 	"pet-study/internal/requestid"
 	"pet-study/internal/router"
@@ -58,16 +55,7 @@ func TestQueueOverflowFastFail(t *testing.T) {
 
 	jh := NewJobHandler(jobSvc)
 
-	//config
-	cfg, _ := config.Load()
-
-	//Client-Transport
-	httpClient, _ := httpclient.New(cfg.Outbound)
-	clientImpl := outbound.NewClientImpl(cfg.Outbound.Profile.BaseURL, httpClient)
-	profileService := service.NewUserProfileService(userSvc, clientImpl, 1*time.Second)
-	ph := NewUsersProfileHandler(profileService)
-
-	userRouter := router.NewRouter(v1, v2, jh, ph, lim, bh)
+	userRouter := router.NewRouter(v1, v2, jh, nil, lim, bh)
 
 	healthRouter := router.NewHealthRouter(readiness)
 	rootRouter := router.NewRoot(userRouter, healthRouter, nil)
@@ -179,16 +167,7 @@ func TestJobNotFound(t *testing.T) {
 
 	jh := NewJobHandler(jobSvc)
 
-	//config
-	cfg, _ := config.Load()
-
-	//Client-Transport
-	httpClient, _ := httpclient.New(cfg.Outbound)
-	clientImpl := outbound.NewClientImpl(cfg.Outbound.Profile.BaseURL, httpClient)
-	profileService := service.NewUserProfileService(userSvc, clientImpl, 1*time.Second)
-	ph := NewUsersProfileHandler(profileService)
-
-	userRouter := router.NewRouter(v1, v2, jh, ph, lim, bh)
+	userRouter := router.NewRouter(v1, v2, jh, nil, lim, bh)
 
 	//healthRouter := router.NewHealthRouter(readiness)
 	rootRouter := router.NewRoot(userRouter, http.NewServeMux(), nil)
@@ -240,5 +219,4 @@ func TestJobNotFound(t *testing.T) {
 	if p.Status != http.StatusNotFound {
 		t.Fatalf("problem.status=%d want=%d", p.Status, http.StatusNotFound)
 	}
-
 }

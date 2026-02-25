@@ -26,12 +26,13 @@ type DBConfig struct {
 }
 
 type WorkerPoolConfig struct {
-	Workers int
+	Workers   int
+	QueueSize int
 }
 
 type RateLimiterConfig struct {
 	RPS   int
-	BURST int
+	Burst int
 }
 
 type BulkheadConfig struct {
@@ -54,7 +55,7 @@ type OutboundRetryConfig struct {
 }
 
 type OutboundProfileConfig struct {
-	BaseURL string
+	Base    *url.URL
 	Timeout time.Duration
 }
 
@@ -89,18 +90,19 @@ func defaultConfig() Config {
 			DSN: "", // optional: if DB_DSN is set, it must be non-empty
 		},
 		Pool: WorkerPoolConfig{
-			Workers: 10, // optional: if DB_DSN is set, it must be non-empty
+			Workers:   10, // optional: if DB_DSN is set, it must be non-empty
+			QueueSize: 10, // optional: if DB_DSN is set, it must be non-empty
 		},
 		Limiter: RateLimiterConfig{
 			RPS:   5,
-			BURST: 10,
+			Burst: 10,
 		},
 		Bulkhead: BulkheadConfig{
 			MaxParallel: 1,
 		},
 		Outbound: OutboundConfig{
 			Profile: OutboundProfileConfig{
-				BaseURL: "http://localhost:8090",
+				Base:    &url.URL{Scheme: "http", Host: "localhost:8090"},
 				Timeout: 1 * time.Second,
 			},
 			Transport: OutboundTransportConfig{
@@ -166,12 +168,17 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
+	cfg.Pool.QueueSize, err = lookupIntPositive("QUEUE_SIZE", cfg.Pool.QueueSize)
+	if err != nil {
+		return Config{}, err
+	}
+
 	cfg.Limiter.RPS, err = lookupIntPositive("RATE_LIMIT_RPS", cfg.Limiter.RPS)
 	if err != nil {
 		return Config{}, err
 	}
 
-	cfg.Limiter.BURST, err = lookupIntPositive("RATE_LIMIT_BURST", cfg.Limiter.BURST)
+	cfg.Limiter.Burst, err = lookupIntPositive("RATE_LIMIT_BURST", cfg.Limiter.Burst)
 	if err != nil {
 		return Config{}, err
 	}
@@ -240,11 +247,13 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
-	cfg.Outbound.Profile.BaseURL, err = lookupURLAbsolute(
-		"OUTBOUND_PROFILE_BASE_URL", cfg.Outbound.Profile.BaseURL)
+	baseURL, err := lookupURLAbsoluteParsed(
+		"OUTBOUND_PROFILE_BASE_URL", cfg.Outbound.Profile.Base.String(),
+	)
 	if err != nil {
 		return Config{}, err
 	}
+	cfg.Outbound.Profile.Base = baseURL
 
 	cfg.Outbound.Profile.Timeout, err = lookupDurationPositive(
 		"OUTBOUND_PROFILE_TIMEOUT", cfg.Outbound.Profile.Timeout)
@@ -272,6 +281,7 @@ func lookupIntPositive(key string, def int) (int, error) {
 	if !ok {
 		return def, nil
 	}
+	v = strings.TrimSpace(v)
 	n, err := strconv.Atoi(v)
 	if err != nil {
 		return 0, fmt.Errorf("%s=%q: parse int: %w", key, v, err)
@@ -287,6 +297,7 @@ func lookupDurationPositive(key string, def time.Duration) (time.Duration, error
 	if !ok {
 		return def, nil
 	}
+	v = strings.TrimSpace(v)
 	d, err := time.ParseDuration(v)
 	if err != nil {
 		return 0, fmt.Errorf("%s=%q: parse duration: %w", key, v, err)
@@ -309,39 +320,45 @@ func lookupBool(key string, def bool) (bool, error) {
 	return b, nil
 }
 
-func lookupURLAbsolute(key, def string) (string, error) {
+func lookupURLAbsoluteParsed(key, def string) (*url.URL, error) {
 	v, ok := os.LookupEnv(key)
 	if !ok {
 		v = def
 	}
 	v = strings.TrimSpace(v)
 	if v == "" {
-		return "", fmt.Errorf("%s is set but empty", key)
+		return nil, fmt.Errorf("%s is set but empty", key)
 	}
 
 	u, err := url.Parse(v)
 	if err != nil {
-		return "", fmt.Errorf("%s=%q: parse url: %w", key, v, err)
+		return nil, fmt.Errorf("%s=%q: parse url: %w", key, v, err)
 	}
 
 	if u.Scheme != "http" && u.Scheme != "https" {
-		return "", fmt.Errorf("%s=%q: scheme=%q: expected http or https", key, v, u.Scheme)
+		return nil, fmt.Errorf("%s=%q: scheme=%q: expected http or https", key, v, u.Scheme)
 	}
 	if u.Host == "" {
-		return "", fmt.Errorf("%s=%q: host is empty", key, v)
+		return nil, fmt.Errorf("%s=%q: host is empty", key, v)
 	}
-
 	if u.Fragment != "" {
-		return "", fmt.Errorf("%s=%q: fragment is not allowed", key, v)
+		return nil, fmt.Errorf("%s=%q: fragment is not allowed", key, v)
 	}
 
-	return strings.TrimRight(v, "/"), nil
+	normalized := strings.TrimRight(v, "/")
+
+	uu, err := url.Parse(normalized)
+	if err != nil {
+		return nil, fmt.Errorf("%s=%q: parse normalized url: %w", key, normalized, err)
+	}
+	return uu, nil
 }
 func lookupIntNonNegative(key string, def int) (int, error) {
 	v, ok := os.LookupEnv(key)
 	if !ok {
 		return def, nil
 	}
+	v = strings.TrimSpace(v)
 	n, err := strconv.Atoi(v)
 	if err != nil {
 		return 0, fmt.Errorf("%s=%q: parse int: %w", key, v, err)

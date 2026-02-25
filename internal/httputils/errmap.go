@@ -210,12 +210,6 @@ func MapError(r *http.Request, err error) MappedProblem {
 		}
 	}
 
-	if errors.Is(err, ErrNotImplemented) {
-		return MappedProblem{
-			Problem: Problem{Status: http.StatusNotImplemented, Detail: "protobuf response is not implemented yet"},
-		}
-	}
-
 	if errors.Is(err, ErrNotAcceptable) {
 		return MappedProblem{
 			Problem: Problem{
