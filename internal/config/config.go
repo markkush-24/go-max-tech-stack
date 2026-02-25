@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"os"
 	"strconv"
@@ -65,13 +66,60 @@ type OutboundConfig struct {
 	Retry     OutboundRetryConfig
 }
 
+type AuthConfig struct {
+	JWT JWTConfig
+}
+
+type JWTKey struct {
+	KID    string
+	Secret string
+}
+
+type JWTConfig struct {
+	AllowedAlg string
+	Issuer     string
+	Audience   string
+	ClockSkew  time.Duration
+	Keys       []JWTKey
+}
+
+type CORSConfig struct {
+	AllowedOrigins   []string
+	AllowedMethods   []string
+	AllowedHeaders   []string
+	AllowCredentials bool
+	MaxAge           time.Duration
+}
+
+type ProxyConfig struct {
+	TrustedProxies []netip.Prefix
+	TrustXFF       bool
+	TrustXFP       bool
+}
+
+type HSTSConfig struct {
+	Enable bool
+	MaxAge time.Duration
+}
+
+type SecurityHeadersConfig struct {
+	Enable         bool
+	ReferrerPolicy string
+	FrameMode      string
+	HSTS           HSTSConfig
+}
+
 type Config struct {
-	HTTP     HTTPConfig
-	DB       DBConfig
-	Pool     WorkerPoolConfig
-	Limiter  RateLimiterConfig
-	Bulkhead BulkheadConfig
-	Outbound OutboundConfig
+	HTTP            HTTPConfig
+	DB              DBConfig
+	Pool            WorkerPoolConfig
+	Limiter         RateLimiterConfig
+	Bulkhead        BulkheadConfig
+	Outbound        OutboundConfig
+	Auth            AuthConfig
+	CORS            CORSConfig
+	Proxy           ProxyConfig
+	SecurityHeaders SecurityHeadersConfig
 }
 
 func defaultConfig() Config {
@@ -87,11 +135,11 @@ func defaultConfig() Config {
 			Debug:             false,
 		},
 		DB: DBConfig{
-			DSN: "", // optional: if DB_DSN is set, it must be non-empty
+			DSN: "",
 		},
 		Pool: WorkerPoolConfig{
-			Workers:   10, // optional: if DB_DSN is set, it must be non-empty
-			QueueSize: 10, // optional: if DB_DSN is set, it must be non-empty
+			Workers:   10,
+			QueueSize: 10,
 		},
 		Limiter: RateLimiterConfig{
 			RPS:   5,
@@ -117,6 +165,41 @@ func defaultConfig() Config {
 				MaxAttempts: 1,
 				BaseDelay:   50 * time.Millisecond,
 				MaxDelay:    500 * time.Millisecond,
+			},
+		},
+		Auth: AuthConfig{
+			JWT: JWTConfig{
+				AllowedAlg: "HS256",
+				Issuer:     "", // пусто = проверку issuer можно будет отключать в middleware
+				Audience:   "", // пусто = проверку audience можно будет отключать в middleware
+				ClockSkew:  30 * time.Second,
+				Keys: []JWTKey{
+					{KID: "dev", Secret: "dev-secret"},
+				},
+			},
+		},
+
+		CORS: CORSConfig{
+			AllowedOrigins:   nil,
+			AllowedMethods:   []string{"GET", "POST", "OPTIONS"},
+			AllowedHeaders:   []string{"Authorization", "Content-Type", "If-None-Match", "X-Request-Id"},
+			AllowCredentials: false,
+			MaxAge:           5 * time.Minute,
+		},
+
+		Proxy: ProxyConfig{
+			TrustedProxies: nil,
+			TrustXFF:       false,
+			TrustXFP:       false,
+		},
+
+		SecurityHeaders: SecurityHeadersConfig{
+			Enable:         true,
+			ReferrerPolicy: "no-referrer",
+			FrameMode:      "xfo_deny",
+			HSTS: HSTSConfig{
+				Enable: false,
+				MaxAge: 0,
 			},
 		},
 	}
@@ -261,6 +344,148 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
+	cfg.Auth.JWT.AllowedAlg, err = lookupStringNonEmpty(
+		"AUTH_JWT_ALLOWED_ALG", cfg.Auth.JWT.AllowedAlg)
+	if err != nil {
+		return Config{}, err
+	}
+	if err := validateJWTAlg(cfg.Auth.JWT.AllowedAlg); err != nil {
+		return Config{}, err
+	}
+
+	cfg.Auth.JWT.ClockSkew, err = lookupDurationNonNegative(
+		"AUTH_JWT_CLOCK_SKEW", cfg.Auth.JWT.ClockSkew)
+	if err != nil {
+		return Config{}, err
+	}
+
+	cfg.Auth.JWT.Issuer, err = lookupStringNonEmpty(
+		"AUTH_JWT_ISSUER", cfg.Auth.JWT.Issuer)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.Auth.JWT.Audience, err = lookupStringNonEmpty(
+		"AUTH_JWT_AUDIENCE", cfg.Auth.JWT.Audience)
+	if err != nil {
+		return Config{}, err
+	}
+
+	keysRaw, err := lookupStringNonEmpty(
+		"AUTH_JWT_KEYS", joinJWTKeys(cfg.Auth.JWT.Keys))
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.Auth.JWT.Keys, err = parseJWTKeys("AUTH_JWT_KEYS", keysRaw)
+	if err != nil {
+		return Config{}, err
+	}
+
+	originsRaw, ok := os.LookupEnv("CORS_ALLOWED_ORIGINS")
+	if ok {
+		originsRaw = strings.TrimSpace(originsRaw)
+		if originsRaw == "" {
+			return Config{}, fmt.Errorf("CORS_ALLOWED_ORIGINS but empty")
+		}
+		cfg.CORS.AllowedOrigins, err = parseCORSOrigins("CORS_ALLOWED_ORIGINS", originsRaw)
+		if err != nil {
+			return Config{}, err
+		}
+	}
+
+	methodsRaw, ok := os.LookupEnv("CORS_ALLOWED_METHODS")
+	if ok {
+		methodsRaw = strings.TrimSpace(methodsRaw)
+		if methodsRaw == "" {
+			return Config{}, fmt.Errorf("CORS_ALLOWED_METHODS but empty")
+		}
+		cfg.CORS.AllowedMethods, err = parseHTTPMethodsCSV("CORS_ALLOWED_METHODS", methodsRaw)
+		if err != nil {
+			return Config{}, err
+		}
+	}
+
+	headersRaw, ok := os.LookupEnv("CORS_ALLOWED_HEADERS")
+	if ok {
+		headersRaw = strings.TrimSpace(headersRaw)
+		if headersRaw == "" {
+			return Config{}, fmt.Errorf("CORS_ALLOWED_HEADERS but empty")
+		}
+		cfg.CORS.AllowedHeaders, err = parseHTTPHeadersCSV("CORS_ALLOWED_HEADERS", headersRaw)
+		if err != nil {
+			return Config{}, err
+		}
+	}
+
+	cfg.CORS.AllowCredentials, err = lookupBool("CORS_ALLOW_CREDENTIALS", cfg.CORS.AllowCredentials)
+	if err != nil {
+		return Config{}, err
+	}
+
+	cfg.CORS.MaxAge, err = lookupDurationNonNegative("CORS_MAX_AGE", cfg.CORS.MaxAge)
+	if err != nil {
+		return Config{}, err
+	}
+
+	if cfg.CORS.AllowCredentials && containsString(cfg.CORS.AllowedOrigins, "*") {
+		return Config{}, fmt.Errorf("CORS_ALLOW_CREDENTIALS=true запрещает origin=\"*\" (CORS_ALLOWED_ORIGINS)")
+	}
+
+	proxiesRaw, ok := os.LookupEnv("PROXY_TRUSTED_PROXIES")
+	if ok {
+		proxiesRaw = strings.TrimSpace(proxiesRaw)
+		if proxiesRaw == "" {
+			return Config{}, fmt.Errorf("PROXY_TRUSTED_PROXIES but empty")
+		}
+		cfg.Proxy.TrustedProxies, err = parseTrustedProxies("PROXY_TRUSTED_PROXIES", proxiesRaw)
+		if err != nil {
+			return Config{}, err
+		}
+	}
+
+	cfg.Proxy.TrustXFF, err = lookupBool("PROXY_TRUST_XFF", cfg.Proxy.TrustXFF)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.Proxy.TrustXFP, err = lookupBool("PROXY_TRUST_XFP", cfg.Proxy.TrustXFP)
+	if err != nil {
+		return Config{}, err
+	}
+
+	cfg.SecurityHeaders.Enable, err = lookupBool("SECURITY_HEADERS_ENABLE", cfg.SecurityHeaders.Enable)
+	if err != nil {
+		return Config{}, err
+	}
+
+	cfg.SecurityHeaders.ReferrerPolicy, err = lookupStringNonEmpty(
+		"SECURITY_HEADERS_REFERRER_POLICY", cfg.SecurityHeaders.ReferrerPolicy)
+	if err != nil {
+		return Config{}, err
+	}
+
+	cfg.SecurityHeaders.FrameMode, err = lookupStringNonEmpty(
+		"SECURITY_HEADERS_FRAME_MODE", cfg.SecurityHeaders.FrameMode)
+	if err != nil {
+		return Config{}, err
+	}
+	if err := validateFrameMode(cfg.SecurityHeaders.FrameMode); err != nil {
+		return Config{}, err
+	}
+
+	cfg.SecurityHeaders.HSTS.Enable, err = lookupBool(
+		"SECURITY_HEADERS_HSTS_ENABLE", cfg.SecurityHeaders.HSTS.Enable)
+	if err != nil {
+		return Config{}, err
+	}
+
+	cfg.SecurityHeaders.HSTS.MaxAge, err = lookupDurationNonNegative(
+		"SECURITY_HEADERS_HSTS_MAX_AGE", cfg.SecurityHeaders.HSTS.MaxAge)
+	if err != nil {
+		return Config{}, err
+	}
+	if cfg.SecurityHeaders.HSTS.Enable && cfg.SecurityHeaders.HSTS.MaxAge <= 0 {
+		return Config{}, fmt.Errorf("SECURITY_HEADERS_HSTS_ENABLE=true требует SECURITY_HEADERS_HSTS_MAX_AGE > 0")
+	}
+
 	return cfg, nil
 }
 
@@ -367,4 +592,243 @@ func lookupIntNonNegative(key string, def int) (int, error) {
 		return 0, fmt.Errorf("%s=%q: must be >= 0", key, v)
 	}
 	return n, nil
+}
+
+func lookupDurationNonNegative(key string, def time.Duration) (time.Duration, error) {
+	v, ok := os.LookupEnv(key)
+	if !ok {
+		return def, nil
+	}
+	v = strings.TrimSpace(v)
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		return 0, fmt.Errorf("%s=%q: parse duration: %w", key, v, err)
+	}
+	if d < 0 {
+		return 0, fmt.Errorf("%s=%q: must be >= 0", key, v)
+	}
+	return d, nil
+}
+
+func splitCSVStrict(key, v string) ([]string, error) {
+	parts := strings.Split(v, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			return nil, fmt.Errorf("%s=%q: empty CSV item", key, v)
+		}
+		out = append(out, p)
+	}
+	return out, nil
+}
+
+func dedupePreserveOrder(in []string) []string {
+	seen := make(map[string]struct{}, len(in))
+	out := make([]string, 0, len(in))
+	for _, x := range in {
+		if _, ok := seen[x]; ok {
+			continue
+		}
+		seen[x] = struct{}{}
+		out = append(out, x)
+	}
+	return out
+}
+
+func containsString(xs []string, s string) bool {
+	for _, x := range xs {
+		if x == s {
+			return true
+		}
+	}
+	return false
+}
+
+func validateJWTAlg(alg string) error {
+	switch strings.TrimSpace(alg) {
+	case "HS256":
+		return nil
+	default:
+		return fmt.Errorf("AUTH_JWT_ALLOWED_ALG=%q: unsupported alg (allowed: HS256)", alg)
+	}
+}
+
+func joinJWTKeys(keys []JWTKey) string {
+	if len(keys) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for i, k := range keys {
+		if i > 0 {
+			b.WriteString(",")
+		}
+		b.WriteString(strings.TrimSpace(k.KID))
+		b.WriteString(":")
+		b.WriteString(k.Secret)
+	}
+	return b.String()
+}
+
+func parseJWTKeys(key, v string) ([]JWTKey, error) {
+	items, err := splitCSVStrict(key, v)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]JWTKey, 0, len(items))
+	seen := make(map[string]struct{}, len(items))
+	for _, it := range items {
+		i := strings.IndexByte(it, ':')
+		if i <= 0 || i >= len(it)-1 {
+			return nil, fmt.Errorf("%s=%q: expected item format kid:secret", key, v)
+		}
+		kid := strings.TrimSpace(it[:i])
+		sec := it[i+1:]
+		if kid == "" {
+			return nil, fmt.Errorf("%s=%q: kid is empty", key, v)
+		}
+		if strings.TrimSpace(sec) == "" {
+			return nil, fmt.Errorf("%s=%q: secret for kid=%q is empty", key, v, kid)
+		}
+		if _, ok := seen[kid]; ok {
+			return nil, fmt.Errorf("%s=%q: duplicate kid=%q", key, v, kid)
+		}
+		seen[kid] = struct{}{}
+		out = append(out, JWTKey{KID: kid, Secret: sec})
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("%s=%q: must contain at least 1 key", key, v)
+	}
+	return out, nil
+}
+
+func parseCORSOrigins(key, v string) ([]string, error) {
+	items, err := splitCSVStrict(key, v)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(items))
+	for _, it := range items {
+		if it == "*" {
+			out = append(out, "*")
+			continue
+		}
+		origin, err := normalizeOrigin(key, it)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, origin)
+	}
+	return dedupePreserveOrder(out), nil
+}
+
+func normalizeOrigin(key, raw string) (string, error) {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return "", fmt.Errorf("%s=%q: origin is empty", key, raw)
+	}
+
+	s = strings.TrimRight(s, "/")
+
+	u, err := url.Parse(s)
+	if err != nil {
+		return "", fmt.Errorf("%s=%q: parse origin: %w", key, raw, err)
+	}
+
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return "", fmt.Errorf("%s=%q: scheme=%q: expected http or https", key, raw, u.Scheme)
+	}
+	if u.Host == "" {
+		return "", fmt.Errorf("%s=%q: host is empty", key, raw)
+	}
+	if u.User != nil {
+		return "", fmt.Errorf("%s=%q: userinfo is not allowed in origin", key, raw)
+	}
+	if u.Path != "" || u.RawQuery != "" || u.Fragment != "" {
+		return "", fmt.Errorf("%s=%q: path/query/fragment are not allowed in origin", key, raw)
+	}
+
+	return strings.ToLower(u.Scheme) + "://" + strings.ToLower(u.Host), nil
+}
+
+func parseHTTPMethodsCSV(key, v string) ([]string, error) {
+	items, err := splitCSVStrict(key, v)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(items))
+	for _, it := range items {
+		m := strings.ToUpper(strings.TrimSpace(it))
+		if m == "" || strings.ContainsAny(m, " \t") {
+			return nil, fmt.Errorf("%s=%q: invalid method=%q", key, v, it)
+		}
+		out = append(out, m)
+	}
+	return dedupePreserveOrder(out), nil
+}
+
+func parseHTTPHeadersCSV(key, v string) ([]string, error) {
+	items, err := splitCSVStrict(key, v)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(items))
+	for _, it := range items {
+		h := strings.TrimSpace(it)
+		if h == "" || strings.ContainsAny(h, " \t") {
+			return nil, fmt.Errorf("%s=%q: invalid header=%q", key, v, it)
+		}
+		out = append(out, http.CanonicalHeaderKey(h))
+	}
+	return dedupePreserveOrder(out), nil
+}
+
+func parseTrustedProxies(key, v string) ([]netip.Prefix, error) {
+	items, err := splitCSVStrict(key, v)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]netip.Prefix, 0, len(items))
+	seen := make(map[string]struct{}, len(items))
+
+	for _, it := range items {
+		if p, err := netip.ParsePrefix(it); err == nil {
+			n := p.Masked()
+			s := n.String()
+			if _, ok := seen[s]; ok {
+				continue
+			}
+			seen[s] = struct{}{}
+			out = append(out, n)
+			continue
+		}
+
+		if a, err := netip.ParseAddr(it); err == nil {
+			bits := 32
+			if a.Is6() {
+				bits = 128
+			}
+			p := netip.PrefixFrom(a, bits)
+			s := p.String()
+			if _, ok := seen[s]; ok {
+				continue
+			}
+			seen[s] = struct{}{}
+			out = append(out, p)
+			continue
+		}
+
+		return nil, fmt.Errorf("%s=%q: invalid item=%q (expected CIDR or IP)", key, v, it)
+	}
+
+	return out, nil
+}
+
+func validateFrameMode(mode string) error {
+	switch strings.TrimSpace(mode) {
+	case "xfo_deny", "csp_frame_ancestors_none":
+		return nil
+	default:
+		return fmt.Errorf("SECURITY_HEADERS_FRAME_MODE=%q: expected xfo_deny or csp_frame_ancestors_none", mode)
+	}
 }
