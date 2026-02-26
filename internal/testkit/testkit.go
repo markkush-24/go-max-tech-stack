@@ -3,6 +3,7 @@ package testkit
 import (
 	"net/http"
 	"net/http/httptest"
+	"pet-study/internal/security"
 	"testing"
 
 	"pet-study/internal/httpapi"
@@ -34,6 +35,9 @@ type App struct {
 	V2 httpapi.UsersAPI
 	JH httpapi.JobsAPI
 }
+type StubVerifier struct {
+	P security.Principal
+}
 
 type options struct {
 	queueSize    int
@@ -43,6 +47,10 @@ type options struct {
 	usersProfile httpapi.UsersProfileAPI
 	health       http.Handler
 	debug        http.Handler
+	principal    security.Principal
+	authToken    string
+	policy       []security.RouteRule
+	injectAuth   bool
 }
 
 type Option func(*options)
@@ -74,8 +82,11 @@ func defaultOptions() options {
 		burst:    1000,
 		bulkhead: 1000,
 
-		health: http.NewServeMux(),
-		debug:  nil,
+		health:    http.NewServeMux(),
+		debug:     nil,
+		principal: security.Principal{UserID: 1, Role: security.RoleAdmin},
+		authToken: "test",
+		policy:    security.DefaultPolicy,
 	}
 }
 
@@ -124,8 +135,11 @@ func NewUserRouter(t *testing.T, opts ...Option) (http.Handler, *App) {
 	t.Helper()
 
 	app, o := newApp(t, opts...)
-	userRouter := router.NewRouter(app.V1, app.V2, app.JH, o.usersProfile, app.Limiter, app.Bulkhead)
-	return userRouter, app
+	ver := StubVerifier{P: o.principal}
+	auth := middleware.NewAuthAPI(ver)
+	rbac := middleware.NewAuthorizeAPI(o.policy)
+	userRouter := router.NewRouter(app.V1, app.V2, app.JH, o.usersProfile, app.Limiter, app.Bulkhead, auth, rbac)
+	return injectBearer(o.authToken, userRouter), app
 }
 
 // NewServer — полный стек: root router + middleware chain + httptest.Server
@@ -133,7 +147,10 @@ func NewServer(t *testing.T, opts ...Option) (*httptest.Server, *App) {
 	t.Helper()
 
 	app, o := newApp(t, opts...)
-	userRouter := router.NewRouter(app.V1, app.V2, app.JH, o.usersProfile, app.Limiter, app.Bulkhead)
+	ver := StubVerifier{P: o.principal}
+	auth := middleware.NewAuthAPI(ver)
+	rbac := middleware.NewAuthorizeAPI(o.policy)
+	userRouter := router.NewRouter(app.V1, app.V2, app.JH, o.usersProfile, app.Limiter, app.Bulkhead, auth, rbac)
 
 	root := router.NewRoot(userRouter, o.health, o.debug)
 
@@ -145,8 +162,23 @@ func NewServer(t *testing.T, opts ...Option) (*httptest.Server, *App) {
 	h = middleware.Recover(h)
 	h = requestid.RequestIDMiddleware(h)
 
+	h = injectBearer(o.authToken, h)
+
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
 
 	return srv, app
+}
+
+func (v StubVerifier) Verify(token string) (security.Principal, error) {
+	return v.P, nil
+}
+
+func injectBearer(token string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") == "" && token != "" {
+			r.Header.Set("Authorization", "Bearer "+token)
+		}
+		next.ServeHTTP(w, r)
+	})
 }

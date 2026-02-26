@@ -6,11 +6,13 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"pet-study/internal/httputils"
 	"pet-study/internal/metrics"
 	"pet-study/internal/middleware"
 	"pet-study/internal/outbound"
 	"pet-study/internal/outbound/httpclient"
 	"pet-study/internal/queue"
+	"pet-study/internal/security"
 	"pet-study/internal/store/jobrepo"
 	"syscall"
 
@@ -61,11 +63,6 @@ func run() error {
 		health.Check{Name: "repo", Fn: userRepository.Ping},
 		health.Check{Name: "workerpool", Fn: pool.CheckRunning})
 
-	var debugRouter http.Handler
-	if cfg.HTTP.Debug {
-		debugRouter = router.NewDebugRouter()
-	}
-
 	//Client-Transport
 	httpClient, tr := httpclient.New(cfg.Outbound)
 	defer tr.CloseIdleConnections()
@@ -91,7 +88,47 @@ func run() error {
 
 	jobsHandler := routes.NewJobHandler(jobService)
 
-	userRouter := router.NewRouter(userHandler, userHandlerV2, jobsHandler, profileHandler, limitedAPI, bulkhead)
+	keys := make([]security.HMACKey, 0, len(cfg.Auth.JWT.Keys))
+	for _, k := range cfg.Auth.JWT.Keys {
+		keys = append(keys, security.HMACKey{KID: k.KID, Secret: []byte(k.Secret)})
+	}
+
+	verifier, err := security.NewJWTVerifierHS256(
+		cfg.Auth.JWT.AllowedAlg,
+		cfg.Auth.JWT.Issuer,
+		cfg.Auth.JWT.Audience,
+		cfg.Auth.JWT.ClockSkew,
+		keys,
+	)
+	if err != nil {
+		return err
+	}
+
+	authAPI := middleware.NewAuthAPI(verifier)
+	rbacAPI := middleware.NewAuthorizeAPI(security.DefaultPolicy)
+
+	userRouter := router.NewRouter(
+		userHandler,
+		userHandlerV2,
+		jobsHandler,
+		profileHandler,
+		limitedAPI,
+		bulkhead,
+		authAPI,
+		rbacAPI,
+	)
+
+	var debugRouter http.Handler
+	if cfg.HTTP.Debug {
+		rawDebug := router.NewDebugRouter()
+
+		dbg := httputils.HandlerToApp(rawDebug)
+
+		dbg = authAPI.Authenticate(dbg)
+		dbg = rbacAPI.Authorize(dbg)
+
+		debugRouter = dbg
+	}
 
 	healthRouter := router.NewHealthRouter(readiness)
 	rootRouter := router.NewRoot(userRouter, healthRouter, debugRouter)

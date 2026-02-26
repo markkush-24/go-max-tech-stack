@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"google.golang.org/protobuf/proto"
 	"io"
 	"mime"
 	"net/http"
@@ -13,10 +12,15 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"google.golang.org/protobuf/proto"
 )
 
 var rxUnknownField = regexp.MustCompile(`^json: unknown field "([^"]+)"$`) // эвристика: stdlib не даёт typed-ошибку
 var ErrProtobufUnavailable = errors.New("protobuf response is not available")
+
+const mustNotBeEmpty = "must not be empty"
+const contentType = "Content-Type"
 
 func ParseJSON(r io.Reader, dst any) error {
 	dec := json.NewDecoder(r)
@@ -93,7 +97,7 @@ func WriteProtobuf(w http.ResponseWriter, status int, msg proto.Message) error {
 		return fmt.Errorf("marshal protobuf: %w", err)
 	}
 
-	w.Header().Set("Content-Type", MediaTypeProtobuf)
+	w.Header().Set(contentType, MediaTypeProtobuf)
 	w.WriteHeader(status)
 
 	if _, err := w.Write(b); err != nil {
@@ -112,7 +116,7 @@ func WriteJSON(w http.ResponseWriter, status int, v any) error {
 		return fmt.Errorf("encode json: %w", err)
 	}
 
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set(contentType, "application/json; charset=utf-8")
 	w.WriteHeader(status)
 
 	if _, err := w.Write(buf.Bytes()); err != nil {
@@ -122,7 +126,7 @@ func WriteJSON(w http.ResponseWriter, status int, v any) error {
 }
 
 func RequireJSONContentType(r *http.Request) error {
-	ct := r.Header.Get("Content-Type")
+	ct := r.Header.Get(contentType)
 	if ct == "" {
 		return fmt.Errorf("%w: missing Content-Type", ErrUnsupportedMediaType)
 	}
@@ -156,12 +160,12 @@ func ValidateCreateUserInput(in entity.CreateUserInput) []ErrorDetail {
 	}
 
 	if strings.TrimSpace(in.Name) == "" {
-		ed = append(ed, ErrorDetail{Field: "name", Rule: "must not be empty"})
+		ed = append(ed, ErrorDetail{Field: "name", Rule: mustNotBeEmpty})
 	}
 
 	email := strings.ToLower(strings.TrimSpace(in.Email))
 	if email == "" {
-		ed = append(ed, ErrorDetail{Field: "email", Rule: "must not be empty"})
+		ed = append(ed, ErrorDetail{Field: "email", Rule: mustNotBeEmpty})
 	} else if !isLikelyEmail(email) {
 		ed = append(ed, ErrorDetail{Field: "email", Rule: "email must be valid"})
 	}
@@ -177,12 +181,12 @@ func ValidateCreateUserInputV2(in entity.CreateUserInputV2) []ErrorDetail {
 	}
 
 	if strings.TrimSpace(in.FullName) == "" {
-		ed = append(ed, ErrorDetail{Field: "full_name", Rule: "must not be empty"})
+		ed = append(ed, ErrorDetail{Field: "full_name", Rule: mustNotBeEmpty})
 	}
 
 	email := strings.ToLower(strings.TrimSpace(in.Email))
 	if email == "" {
-		ed = append(ed, ErrorDetail{Field: "email", Rule: "must not be empty"})
+		ed = append(ed, ErrorDetail{Field: "email", Rule: mustNotBeEmpty})
 	} else if !isLikelyEmail(email) {
 		ed = append(ed, ErrorDetail{Field: "email", Rule: "email must be valid"})
 	}
@@ -348,3 +352,10 @@ func splitHeaderList(s string) []string {
 
 func itoa(v int) string     { return strconv.Itoa(v) }
 func i64toa(v int64) string { return strconv.FormatInt(v, 10) }
+
+func HandlerToApp(h http.Handler) AppHandler {
+	return func(w http.ResponseWriter, r *http.Request) error {
+		h.ServeHTTP(w, r)
+		return nil
+	}
+}

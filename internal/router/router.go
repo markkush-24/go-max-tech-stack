@@ -7,6 +7,8 @@ import (
 	"pet-study/internal/middleware"
 )
 
+const mustBePositive = "id must be a positive integer"
+
 func NewRouter(
 	users httpapi.UsersAPI,
 	usersV2 httpapi.UsersAPI,
@@ -14,50 +16,59 @@ func NewRouter(
 	usersProfile httpapi.UsersProfileAPI,
 	limiter *middleware.RateLimitedAPI,
 	bulkhead *middleware.BulkheadAPI,
+	auth *middleware.AuthAPI,
+	rbac *middleware.AuthorizeAPI,
 ) http.Handler {
 	mux := http.NewServeMux()
 
+	wrap := func(h httputils.AppHandler) httputils.AppHandler {
+		return bulkhead.Bulkhead(
+			limiter.RateLimiter(
+				auth.Authenticate(
+					rbac.Authorize(h),
+				),
+			),
+		)
+	}
 	// v1 collection (method-specific patterns)
-	mux.Handle("GET /api/v1/users", bulkhead.Bulkhead(limiter.RateLimiter(users.List)))
-	mux.Handle("POST /api/v1/users", bulkhead.Bulkhead(limiter.RateLimiter(users.Create)))
+	mux.Handle("GET /api/v1/users", wrap(users.List))
+	mux.Handle("POST /api/v1/users", wrap(users.Create))
 
 	// v2 collection (method-specific patterns)
-	mux.Handle("GET /api/v2/users", bulkhead.Bulkhead(limiter.RateLimiter(usersV2.List)))
-	mux.Handle("POST /api/v2/users", bulkhead.Bulkhead(limiter.RateLimiter(usersV2.Create)))
+	mux.Handle("GET /api/v2/users", wrap(usersV2.List))
+	mux.Handle("POST /api/v2/users", wrap(usersV2.Create))
 
 	// v1 jobs item
 	getJobByID := func(w http.ResponseWriter, r *http.Request) error {
 		idStr := r.PathValue("id")
 		id, ok := httputils.ParsePositiveInt(idStr)
 		if !ok {
-			return &httputils.BadRequestError{Detail: "id must be a positive integer"}
+			return &httputils.BadRequestError{Detail: mustBePositive}
 		}
 		return jobs.GetByID(w, r, id)
 	}
-	mux.Handle("/api/v1/jobs/{id}", bulkhead.Bulkhead(limiter.RateLimiter(
-		func(w http.ResponseWriter, r *http.Request) error {
-			if r.Method == http.MethodGet {
-				return getJobByID(w, r)
-			}
-			return &httputils.MethodNotAllowedError{Allow: "GET"}
-		})))
+	mux.Handle("/api/v1/jobs/{id}", wrap(func(w http.ResponseWriter, r *http.Request) error {
+		if r.Method == http.MethodGet {
+			return getJobByID(w, r)
+		}
+		return &httputils.MethodNotAllowedError{Allow: "GET"}
+	}))
 
 	// v1 users item
 	getUserByID := func(w http.ResponseWriter, r *http.Request) error {
 		idStr := r.PathValue("id")
 		id, ok := httputils.ParsePositiveInt(idStr)
 		if !ok {
-			return &httputils.BadRequestError{Detail: "id must be a positive integer"}
+			return &httputils.BadRequestError{Detail: mustBePositive}
 		}
 		return users.GetByID(w, r, id)
 	}
-	mux.Handle("/api/v1/users/{id}", bulkhead.Bulkhead(limiter.RateLimiter(
-		func(w http.ResponseWriter, r *http.Request) error {
-			if r.Method == http.MethodGet {
-				return getUserByID(w, r)
-			}
-			return &httputils.MethodNotAllowedError{Allow: "GET"}
-		})))
+	mux.Handle("/api/v1/users/{id}", wrap(func(w http.ResponseWriter, r *http.Request) error {
+		if r.Method == http.MethodGet {
+			return getUserByID(w, r)
+		}
+		return &httputils.MethodNotAllowedError{Allow: "GET"}
+	}))
 
 	// users+profile GET
 	if usersProfile != nil {
@@ -65,21 +76,20 @@ func NewRouter(
 			idStr := r.PathValue("id")
 			id, ok := httputils.ParsePositiveInt(idStr)
 			if !ok {
-				return &httputils.BadRequestError{Detail: "id must be a positive integer"}
+				return &httputils.BadRequestError{Detail: mustBePositive}
 			}
 			return usersProfile.GetUserProfile(w, r, int64(id))
 		}
-		mux.Handle("/api/v1/users/{id}/profile", bulkhead.Bulkhead(limiter.RateLimiter(
-			func(w http.ResponseWriter, r *http.Request) error {
-				if r.Method == http.MethodGet {
-					return getUserProfile(w, r)
-				}
-				return &httputils.MethodNotAllowedError{Allow: "GET"}
-			})))
+		mux.Handle("/api/v1/users/{id}/profile", wrap(func(w http.ResponseWriter, r *http.Request) error {
+			if r.Method == http.MethodGet {
+				return getUserProfile(w, r)
+			}
+			return &httputils.MethodNotAllowedError{Allow: "GET"}
+		}))
 	}
 
 	// 405 для коллекции
-	mux.Handle("/api/v1/users", bulkhead.Bulkhead(limiter.RateLimiter(
+	mux.Handle("/api/v1/users", wrap(
 		func(w http.ResponseWriter, r *http.Request) error {
 			if r.Method == http.MethodGet {
 				return users.List(w, r)
@@ -88,13 +98,12 @@ func NewRouter(
 				return users.Create(w, r)
 			}
 			return &httputils.MethodNotAllowedError{Allow: "GET, POST"}
-		})))
+		}))
 
 	// 405 v2 (только на коллекцию, без subtree!)
-	mux.Handle("/api/v2/users", bulkhead.Bulkhead(limiter.RateLimiter(
-		func(w http.ResponseWriter, r *http.Request) error {
-			return &httputils.MethodNotAllowedError{Allow: "GET, POST"}
-		})))
+	mux.Handle("/api/v2/users", wrap(func(w http.ResponseWriter, r *http.Request) error {
+		return &httputils.MethodNotAllowedError{Allow: "GET, POST"}
+	}))
 
 	return WithProblemNotFound(mux)
 }

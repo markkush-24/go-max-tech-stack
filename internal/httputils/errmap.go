@@ -7,6 +7,7 @@ import (
 	"pet-study/internal/entity"
 	"pet-study/internal/outbound/profile"
 	"pet-study/internal/queue"
+	"pet-study/internal/security"
 	"pet-study/internal/service"
 	"strconv"
 	"time"
@@ -81,6 +82,22 @@ func MapError(r *http.Request, err error) MappedProblem {
 			Problem: Problem{Status: http.StatusMethodNotAllowed, Detail: "method not allowed"},
 			Headers: h,
 		}
+	}
+
+	// Unauthorized (401) + WWW-Authenticate.
+	var ue *security.UnauthorizedError
+	if errors.As(err, &ue) {
+		h := make(http.Header, 1)
+		h.Set("WWW-Authenticate", ue.WWWAuthenticateValue())
+		return MappedProblem{
+			Problem: Problem{Status: http.StatusUnauthorized, Detail: "unauthorized"},
+			Headers: h,
+		}
+	}
+
+	var fe *security.ForbiddenError
+	if errors.As(err, &fe) {
+		return MappedProblem{Problem: Problem{Status: http.StatusForbidden, Detail: "forbidden"}}
 	}
 
 	var ve *ValidationError

@@ -27,6 +27,7 @@ func NewAPIServer(
 	queue *queue.Queue,
 ) *APIServer {
 	return &APIServer{
+		config:    config,
 		router:    router,
 		readiness: readiness,
 		pool:      pool,

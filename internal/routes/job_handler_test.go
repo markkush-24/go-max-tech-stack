@@ -1,4 +1,4 @@
-package routes
+package routes_test
 
 import (
 	"bytes"
@@ -14,9 +14,12 @@ import (
 	"pet-study/internal/queue"
 	"pet-study/internal/requestid"
 	"pet-study/internal/router"
+	"pet-study/internal/routes"
+	"pet-study/internal/security"
 	"pet-study/internal/service"
 	"pet-study/internal/store/jobrepo"
 	"pet-study/internal/store/userrepo"
+	"pet-study/internal/testkit"
 	"pet-study/internal/workerpool"
 	"time"
 
@@ -47,15 +50,17 @@ func TestQueueOverflowFastFail(t *testing.T) {
 		health.Check{Name: "repo", Fn: userRepo.Ping},
 		health.Check{Name: "workerpool", Fn: pool.CheckRunning})
 
-	v1 := NewUserHandler(userSvc, jobSvc, q, m)
-	v2 := NewUserV2Handler(userSvc, jobSvc, q, m)
+	v1 := routes.NewUserHandler(userSvc, jobSvc, q, m)
+	v2 := routes.NewUserV2Handler(userSvc, jobSvc, q, m)
 
 	lim := middleware.NewRateLimitedAPI(float64(10), 5)
 	bh := middleware.NewBulkhead(1)
+	auth := middleware.NewAuthAPI(testkit.StubVerifier{P: security.Principal{UserID: 1, Role: security.RoleAdmin}})
+	rbac := middleware.NewAuthorizeAPI(security.DefaultPolicy)
 
-	jh := NewJobHandler(jobSvc)
+	jh := routes.NewJobHandler(jobSvc)
 
-	userRouter := router.NewRouter(v1, v2, jh, nil, lim, bh)
+	userRouter := router.NewRouter(v1, v2, jh, nil, lim, bh, auth, rbac)
 
 	healthRouter := router.NewHealthRouter(readiness)
 	rootRouter := router.NewRoot(userRouter, healthRouter, nil)
@@ -80,11 +85,16 @@ func TestQueueOverflowFastFail(t *testing.T) {
 		}
 	})
 
-	resp, err := server.Client().Post(
-		server.URL+"/api/v1/users?async=1",
-		"application/json",
+	client := server.Client()
+
+	req, _ := http.NewRequest("POST", server.URL+"/api/v1/users?async=1",
 		bytes.NewBufferString(`{"name":"bob","email":"bob@example.com","age":21}`),
 	)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer test")
+
+	resp, err := client.Do(req)
+
 	if err != nil {
 		t.Fatalf("post #1: %v", err)
 	}
@@ -103,11 +113,13 @@ func TestQueueOverflowFastFail(t *testing.T) {
 		t.Fatalf("missing %s header", requestid.HeaderName)
 	}
 
-	resp2, errUnavailable := server.Client().Post(
-		server.URL+"/api/v1/users?async=1",
-		"application/json",
+	req2, _ := http.NewRequest("POST", server.URL+"/api/v1/users?async=1",
 		bytes.NewBufferString(`{"name":"bob","email":"bob@example.com","age":21}`),
 	)
+	req2.Header.Set("Content-Type", "application/json")
+	req2.Header.Set("Authorization", "Bearer test")
+
+	resp2, errUnavailable := client.Do(req2)
 
 	if errUnavailable != nil {
 		t.Fatalf("post #2: %v", errUnavailable)
@@ -159,15 +171,18 @@ func TestJobNotFound(t *testing.T) {
 
 	q := queue.New(1)
 
-	v1 := NewUserHandler(userSvc, jobSvc, q, m)
-	v2 := NewUserV2Handler(userSvc, jobSvc, q, m)
+	v1 := routes.NewUserHandler(userSvc, jobSvc, q, m)
+	v2 := routes.NewUserV2Handler(userSvc, jobSvc, q, m)
 
 	lim := middleware.NewRateLimitedAPI(float64(10), 5)
 	bh := middleware.NewBulkhead(1)
 
-	jh := NewJobHandler(jobSvc)
+	auth := middleware.NewAuthAPI(testkit.StubVerifier{P: security.Principal{UserID: 1, Role: security.RoleAdmin}})
+	rbac := middleware.NewAuthorizeAPI(security.DefaultPolicy)
 
-	userRouter := router.NewRouter(v1, v2, jh, nil, lim, bh)
+	jh := routes.NewJobHandler(jobSvc)
+
+	userRouter := router.NewRouter(v1, v2, jh, nil, lim, bh, auth, rbac)
 
 	//healthRouter := router.NewHealthRouter(readiness)
 	rootRouter := router.NewRoot(userRouter, http.NewServeMux(), nil)
@@ -185,7 +200,11 @@ func TestJobNotFound(t *testing.T) {
 
 	t.Cleanup(server.Close)
 
-	resp, err := server.Client().Get(server.URL + "/api/v1/jobs/999999")
+	client := server.Client()
+	req, _ := http.NewRequest("GET", server.URL+"/api/v1/jobs/999999", nil)
+	req.Header.Set("Authorization", "Bearer test")
+	resp, err := client.Do(req)
+
 	if err != nil {
 		t.Fatalf("get #1: %v", err)
 	}
