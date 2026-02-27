@@ -3,7 +3,6 @@ package router_test
 import (
 	"bytes"
 	"encoding/json"
-	"mime"
 	"net/http"
 	"net/http/httptest"
 	"pet-study/internal/testkit"
@@ -125,7 +124,7 @@ func TestDecodeErrors_ReturnProblemJSON(t *testing.T) {
 			if rec.Code != tt.want {
 				t.Fatalf("status=%d want=%d body=%s", rec.Code, tt.want, rec.Body.String())
 			}
-			if got := mustMediaType(t, rec); got != "application/problem+json" {
+			if got := testkit.MustMediaType(t, rec); got != "application/problem+json" {
 				t.Fatalf("mediaType=%q", got)
 			}
 			p := decodeProblem(t, rec)
@@ -202,12 +201,4 @@ func TestUnsupportedMediaType_Return415Problem(t *testing.T) {
 	if rec.Code != http.StatusUnsupportedMediaType {
 		t.Fatalf("status=%d want=415 body=%s", rec.Code, rec.Body.String())
 	}
-}
-func mustMediaType(t *testing.T, rec *httptest.ResponseRecorder) string {
-	t.Helper()
-	mt, _, err := mime.ParseMediaType(rec.Header().Get("Content-Type"))
-	if err != nil {
-		t.Fatalf("bad Content-Type: %v", err)
-	}
-	return mt
 }

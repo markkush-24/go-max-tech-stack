@@ -88,3 +88,7 @@ var DefaultPolicy = []RouteRule{
 	{Pattern: "POST /api/v2/users", Methods: []string{"POST"}, Access: AccessAdminOnly},
 	{Pattern: "/api/v2/users", Methods: []string{"*"}, Access: AccessAdminOnly, Notes: "fallback коллекции (хелпер для 405)"},
 }
+
+func CanReadUser(p Principal, targetID int64) bool {
+	return p.Role == RoleAdmin || p.UserID == targetID
+}

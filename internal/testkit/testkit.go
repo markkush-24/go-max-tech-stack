@@ -1,6 +1,7 @@
 package testkit
 
 import (
+	"mime"
 	"net/http"
 	"net/http/httptest"
 	"pet-study/internal/security"
@@ -181,4 +182,13 @@ func injectBearer(token string, next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func MustMediaType(t *testing.T, rec *httptest.ResponseRecorder) string {
+	t.Helper()
+	mt, _, err := mime.ParseMediaType(rec.Header().Get("Content-Type"))
+	if err != nil {
+		t.Fatalf("bad Content-Type: %v", err)
+	}
+	return mt
 }

@@ -8,6 +8,7 @@ import (
 	"pet-study/internal/httputils"
 	"pet-study/internal/metrics"
 	"pet-study/internal/queue"
+	"pet-study/internal/security"
 	"pet-study/internal/service"
 	"pet-study/internal/transport/pb"
 )
@@ -92,6 +93,15 @@ func (h *UsersHandler) Create(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (h *UsersHandler) GetByID(w http.ResponseWriter, r *http.Request, id int) error {
+	principal, ok := security.FromContext(r.Context())
+	if !ok {
+		return security.NewUnauthorized(security.AuthNMissing, nil)
+	}
+
+	readUser := security.CanReadUser(principal, int64(id))
+	if !readUser {
+		return security.NewForbidden(security.AuthZForbidden, nil)
+	}
 	u, err := h.userService.GetByID(r.Context(), id)
 	if err != nil {
 		return err
