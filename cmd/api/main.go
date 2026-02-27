@@ -107,6 +107,9 @@ func run() error {
 	authAPI := middleware.NewAuthAPI(verifier)
 	rbacAPI := middleware.NewAuthorizeAPI(security.DefaultPolicy)
 
+	corsAPI := middleware.NewCORS(cfg.CORS)
+	secAPI := middleware.NewSecurityHeaders(cfg.SecurityHeaders)
+
 	userRouter := router.NewRouter(
 		userHandler,
 		userHandlerV2,
@@ -117,6 +120,8 @@ func run() error {
 		authAPI,
 		rbacAPI,
 	)
+	userRouter = corsAPI.CORS(userRouter)
+	userRouter = secAPI.SecurityHeaders(userRouter)
 
 	var debugRouter http.Handler
 	if cfg.HTTP.Debug {
