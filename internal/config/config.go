@@ -105,7 +105,6 @@ type HSTSConfig struct {
 type SecurityHeadersConfig struct {
 	Enable         bool
 	ReferrerPolicy string
-	FrameMode      string
 	HSTS           HSTSConfig
 }
 
@@ -196,7 +195,6 @@ func defaultConfig() Config {
 		SecurityHeaders: SecurityHeadersConfig{
 			Enable:         true,
 			ReferrerPolicy: "no-referrer",
-			FrameMode:      "xfo_deny",
 			HSTS: HSTSConfig{
 				Enable: false,
 				MaxAge: 0,
@@ -459,15 +457,6 @@ func Load() (Config, error) {
 	cfg.SecurityHeaders.ReferrerPolicy, err = lookupStringNonEmpty(
 		"SECURITY_HEADERS_REFERRER_POLICY", cfg.SecurityHeaders.ReferrerPolicy)
 	if err != nil {
-		return Config{}, err
-	}
-
-	cfg.SecurityHeaders.FrameMode, err = lookupStringNonEmpty(
-		"SECURITY_HEADERS_FRAME_MODE", cfg.SecurityHeaders.FrameMode)
-	if err != nil {
-		return Config{}, err
-	}
-	if err := validateFrameMode(cfg.SecurityHeaders.FrameMode); err != nil {
 		return Config{}, err
 	}
 
@@ -822,13 +811,4 @@ func parseTrustedProxies(key, v string) ([]netip.Prefix, error) {
 	}
 
 	return out, nil
-}
-
-func validateFrameMode(mode string) error {
-	switch strings.TrimSpace(mode) {
-	case "xfo_deny", "csp_frame_ancestors_none":
-		return nil
-	default:
-		return fmt.Errorf("SECURITY_HEADERS_FRAME_MODE=%q: expected xfo_deny or csp_frame_ancestors_none", mode)
-	}
 }

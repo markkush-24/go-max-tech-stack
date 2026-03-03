@@ -41,6 +41,10 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	proxyAPI, err := middleware.NewProxyAPI(cfg.Proxy)
+	if err != nil {
+		return err
+	}
 
 	// Metrics registry
 	m := metrics.DefaultHTTP()
@@ -138,14 +142,23 @@ func run() error {
 	healthRouter := router.NewHealthRouter(readiness)
 	rootRouter := router.NewRoot(userRouter, healthRouter, debugRouter)
 
-	// Middleware chain (outer -> inner):
-	// RequestID -> Metrics -> Logger -> Recover -> Router
+	// Middleware chain (execution order, outer -> inner):
+	// 1) Proxy.SanitizeRequestIDHeader (trust-only X-Request-Id)
+	// 2) RequestID
+	// 3) Recover (outer)
+	// 4) TrustProxy (RequestInfo: ClientIP/Scheme)
+	// 5) Metrics
+	// 6) Logger
+	// 7) Recover (inner)
+	// 8) RootRouter (ServeMux: API + health + debug)
 	handler := rootRouter
 	handler = middleware.Recover(handler) // inner: чтобы Logger/Metrics увидели 500 при panic в Router
 	handler = middleware.Logger(handler)
 	handler = middleware.Metrics(m)(handler)
+	handler = proxyAPI.TrustProxy(handler)
 	handler = middleware.Recover(handler) // outer: ловит panic в Logger/Metrics
 	handler = requestid.RequestIDMiddleware(handler)
+	handler = proxyAPI.SanitizeRequestIDHeader(handler)
 
 	server := api.NewAPIServer(cfg, handler, readiness, pool, q)
 	log.Printf("config: addr=%s debug=%v", cfg.HTTP.Addr, cfg.HTTP.Debug)

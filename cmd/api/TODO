@@ -15,3 +15,5 @@
 3.Добавление второго rateLimiter per-ip
 
 4.Добавление статических линтеров
+
+5. использовать ri.ClientIP как ключ для IP-based rate limiter (S7+)

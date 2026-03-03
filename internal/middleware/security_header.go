@@ -2,7 +2,9 @@ package middleware
 
 import (
 	"net/http"
+	"pet-study/internal/security"
 	"strconv"
+	"time"
 
 	"pet-study/internal/config"
 )
@@ -23,8 +25,19 @@ func (s *SecurityHeadersAPI) SecurityHeaders(next http.Handler) http.Handler {
 			w.Header().Set("X-Frame-Options", "DENY")
 
 			// HSTS: only on HTTPS
-			if s.cfg.HSTS.MaxAge > 0 && r.TLS != nil {
-				w.Header().Set("Strict-Transport-Security", "max-age="+strconv.Itoa(int(s.cfg.HSTS.MaxAge)))
+			if s.cfg.HSTS.Enable && s.cfg.HSTS.MaxAge > 0 {
+				isHTTPS := false
+
+				if ri, ok := security.RequestInfoFromContext(r.Context()); ok {
+					isHTTPS = ri.Scheme == "https"
+				} else {
+					isHTTPS = r.TLS != nil
+				}
+
+				if isHTTPS {
+					secs := int64(s.cfg.HSTS.MaxAge / time.Second)
+					w.Header().Set("Strict-Transport-Security", "max-age="+strconv.FormatInt(secs, 10))
+				}
 			}
 		}
 

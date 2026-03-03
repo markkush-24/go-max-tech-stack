@@ -155,7 +155,7 @@ func NewServer(t *testing.T, opts ...Option) (*httptest.Server, *App) {
 
 	root := router.NewRoot(userRouter, o.health, o.debug)
 
-	// Chain как в main
+	// Minimal test chain (differs from main: no proxy trust/sanitize)
 	var h http.Handler = root
 	h = middleware.Recover(h)
 	h = middleware.Logger(h)

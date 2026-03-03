@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"pet-study/internal/httputils"
 	"pet-study/internal/requestid"
+	"pet-study/internal/security"
 	"time"
 )
 
@@ -41,6 +42,18 @@ func Logger(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 
 		rid, _ := requestid.RequestID(r.Context())
+
+		clientIP := "-"
+		scheme := "-"
+		if ri, ok := security.RequestInfoFromContext(r.Context()); ok {
+			if ri.ClientIP != "" {
+				clientIP = ri.ClientIP
+			}
+			if ri.Scheme != "" {
+				scheme = ri.Scheme
+			}
+		}
+
 		log.Printf(
 			"[LOG] Method -- {%s},"+
 				" UrlPath -- {%s},"+
@@ -48,8 +61,10 @@ func Logger(next http.Handler) http.Handler {
 				" Status -- {%d},"+
 				" Bytes -- {%d} ,"+
 				" TimeSince -- {%v},"+
-				" RequestID=%s",
-			r.Method, r.URL.Path, r.Pattern, sr.Status(), sr.Bytes(), time.Since(start), rid,
+				" RequestID=%s"+
+				" ClientIP=%s"+
+				" Scheme=%s",
+			r.Method, r.URL.Path, r.Pattern, sr.Status(), sr.Bytes(), time.Since(start), rid, clientIP, scheme,
 		)
 	})
 }
