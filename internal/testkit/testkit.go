@@ -1,19 +1,23 @@
 package testkit
 
 import (
+	"context"
 	"mime"
 	"net/http"
 	"net/http/httptest"
+	"pet-study/internal/config"
+	"pet-study/internal/entity"
 	"pet-study/internal/security"
 	"testing"
+	"time"
 
 	"pet-study/internal/httpapi"
 	"pet-study/internal/metrics"
 	"pet-study/internal/middleware"
 	"pet-study/internal/queue"
 	"pet-study/internal/requestid"
-	"pet-study/internal/router"
-	"pet-study/internal/routes"
+	apirouter "pet-study/internal/router"
+	routes "pet-study/internal/routes"
 	"pet-study/internal/service"
 	"pet-study/internal/store/jobrepo"
 	"pet-study/internal/store/userrepo"
@@ -37,7 +41,8 @@ type App struct {
 	JH httpapi.JobsAPI
 }
 type StubVerifier struct {
-	P security.Principal
+	P     security.Principal
+	Token string
 }
 
 type options struct {
@@ -52,6 +57,7 @@ type options struct {
 	authToken    string
 	policy       []security.RouteRule
 	injectAuth   bool
+	corsConfig   *config.CORSConfig
 }
 
 type Option func(*options)
@@ -75,6 +81,42 @@ func WithDebug(h http.Handler) Option {
 	return func(o *options) { o.debug = h }
 }
 
+func WithoutAuthInjection() Option {
+	return func(o *options) {
+		o.injectAuth = false
+	}
+}
+
+func WithPrincipalUser(id int64) Option {
+	return func(o *options) {
+		o.principal = security.Principal{
+			UserID: id,
+			Role:   security.RoleUser,
+		}
+	}
+}
+
+func WithPrincipalAdmin(id int64) Option {
+	return func(o *options) {
+		o.principal = security.Principal{
+			UserID: id,
+			Role:   security.RoleAdmin,
+		}
+	}
+}
+
+func WithCORSAllowlist(origins ...string) Option {
+	return func(o *options) {
+		o.corsConfig = &config.CORSConfig{
+			AllowedOrigins:   origins,
+			AllowedMethods:   []string{"GET", "POST", "OPTIONS"},
+			AllowedHeaders:   []string{"Authorization", "Content-Type", "If-None-Match", "X-Request-Id"},
+			AllowCredentials: false,
+			MaxAge:           5 * time.Minute,
+		}
+	}
+}
+
 func defaultOptions() options {
 	return options{
 		queueSize: 10,
@@ -83,11 +125,13 @@ func defaultOptions() options {
 		burst:    1000,
 		bulkhead: 1000,
 
-		health:    http.NewServeMux(),
-		debug:     nil,
-		principal: security.Principal{UserID: 1, Role: security.RoleAdmin},
-		authToken: "test",
-		policy:    security.DefaultPolicy,
+		health:     http.NewServeMux(),
+		debug:      nil,
+		principal:  security.Principal{UserID: 1, Role: security.RoleAdmin},
+		injectAuth: true,
+		authToken:  "test",
+		policy:     security.DefaultPolicy,
+		corsConfig: nil,
 	}
 }
 
@@ -136,11 +180,28 @@ func NewUserRouter(t *testing.T, opts ...Option) (http.Handler, *App) {
 	t.Helper()
 
 	app, o := newApp(t, opts...)
-	ver := StubVerifier{P: o.principal}
+	ver := StubVerifier{P: o.principal, Token: o.authToken}
 	auth := middleware.NewAuthAPI(ver)
 	rbac := middleware.NewAuthorizeAPI(o.policy)
-	userRouter := router.NewRouter(app.V1, app.V2, app.JH, o.usersProfile, app.Limiter, app.Bulkhead, auth, rbac)
-	return injectBearer(o.authToken, userRouter), app
+	userRouter := apirouter.NewRouter(app.V1, app.V2, app.JH, o.usersProfile, app.Limiter, app.Bulkhead, auth, rbac)
+	if o.corsConfig != nil {
+		corsAPI := middleware.NewCORS(*o.corsConfig)
+		userRouter = corsAPI.CORS(userRouter)
+	}
+
+	secAPI := middleware.NewSecurityHeaders(config.SecurityHeadersConfig{
+		Enable:         true,
+		ReferrerPolicy: "no-referrer",
+	})
+
+	var h http.Handler = userRouter
+	h = secAPI.SecurityHeaders(h)
+	h = requestid.RequestIDMiddleware(h)
+
+	if o.injectAuth && o.authToken != "" {
+		h = injectBearer(o.authToken, h)
+	}
+	return h, app
 }
 
 // NewServer — полный стек: root router + middleware chain + httptest.Server
@@ -148,12 +209,23 @@ func NewServer(t *testing.T, opts ...Option) (*httptest.Server, *App) {
 	t.Helper()
 
 	app, o := newApp(t, opts...)
-	ver := StubVerifier{P: o.principal}
+	ver := StubVerifier{P: o.principal, Token: o.authToken}
 	auth := middleware.NewAuthAPI(ver)
 	rbac := middleware.NewAuthorizeAPI(o.policy)
-	userRouter := router.NewRouter(app.V1, app.V2, app.JH, o.usersProfile, app.Limiter, app.Bulkhead, auth, rbac)
+	userRouter := apirouter.NewRouter(app.V1, app.V2, app.JH, o.usersProfile, app.Limiter, app.Bulkhead, auth, rbac)
 
-	root := router.NewRoot(userRouter, o.health, o.debug)
+	if o.corsConfig != nil {
+		corsAPI := middleware.NewCORS(*o.corsConfig)
+		userRouter = corsAPI.CORS(userRouter)
+	}
+
+	secAPI := middleware.NewSecurityHeaders(config.SecurityHeadersConfig{
+		Enable:         true,
+		ReferrerPolicy: "no-referrer",
+	})
+	userRouter = secAPI.SecurityHeaders(userRouter)
+
+	root := apirouter.NewRoot(userRouter, o.health, o.debug)
 
 	// Minimal test chain (differs from main: no proxy trust/sanitize)
 	var h http.Handler = root
@@ -163,7 +235,9 @@ func NewServer(t *testing.T, opts ...Option) (*httptest.Server, *App) {
 	h = middleware.Recover(h)
 	h = requestid.RequestIDMiddleware(h)
 
-	h = injectBearer(o.authToken, h)
+	if o.injectAuth && o.authToken != "" {
+		h = injectBearer(o.authToken, h)
+	}
 
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
@@ -172,6 +246,9 @@ func NewServer(t *testing.T, opts ...Option) (*httptest.Server, *App) {
 }
 
 func (v StubVerifier) Verify(token string) (security.Principal, error) {
+	if v.Token != "" && token != v.Token {
+		return security.Principal{}, &security.AuthNError{Kind: security.AuthNInvalid}
+	}
 	return v.P, nil
 }
 
@@ -191,4 +268,17 @@ func MustMediaType(t *testing.T, rec *httptest.ResponseRecorder) string {
 		t.Fatalf("bad Content-Type: %v", err)
 	}
 	return mt
+}
+
+func ReqContext() context.Context { return context.Background() }
+
+func CreateUser(name, email string, age int) *entity.CreateUserInput {
+	return &entity.CreateUserInput{Name: name, Email: email, Age: age}
+}
+func InjectBearerForTests(token string, next http.Handler) http.Handler {
+	return injectBearer(token, next)
+}
+
+func NewMetricsForTests() *metrics.HTTPMetrics {
+	return metrics.DefaultHTTP()
 }

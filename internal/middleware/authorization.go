@@ -1,10 +1,17 @@
 package middleware
 
 import (
+	"expvar"
 	"net/http"
 	"pet-study/internal/httputils"
 	"pet-study/internal/security"
 	"strings"
+	"sync"
+)
+
+var (
+	authnInitOnce sync.Once
+	authnFailures *expvar.Map
 )
 
 type AuthAPI struct {
@@ -12,6 +19,10 @@ type AuthAPI struct {
 }
 
 func NewAuthAPI(verifier security.Verifier) *AuthAPI {
+	authnInitOnce.Do(func() {
+		authnFailures = expvar.NewMap("authn_failures_total")
+	})
+
 	if verifier == nil {
 		panic("AuthAPI: verifier is nil")
 	}
@@ -26,12 +37,23 @@ func (a *AuthAPI) Authenticate(next httputils.AppHandler) httputils.AppHandler {
 
 		token, err := parseBearerToken(r.Header.Get("Authorization"))
 		if err != nil {
+			if k, ok := security.AuthNKind(err); ok {
+				incAuthN(k)
+			} else {
+				incAuthN("other")
+			}
 			return err
 		}
 
 		p, err := a.verifier.Verify(token)
 		if err != nil {
-			return security.UnauthorizedFromVerifyErr(err)
+			uerr := security.UnauthorizedFromVerifyErr(err)
+			if k, ok := security.AuthNKind(uerr); ok {
+				incAuthN(k)
+			} else {
+				incAuthN("other")
+			}
+			return uerr
 		}
 
 		r = r.WithContext(security.WithPrincipal(r.Context(), p))
@@ -55,4 +77,15 @@ func parseBearerToken(hdr string) (string, error) {
 		return "", security.NewUnauthorized(security.AuthNInvalid, nil)
 	}
 	return token, nil
+}
+
+func incAuthN(kind security.AuthNErrorKind) {
+	key := string(kind)
+	v := authnFailures.Get(key)
+	if v == nil {
+		n := new(expvar.Int)
+		authnFailures.Set(key, n)
+		v = n
+	}
+	v.(*expvar.Int).Add(1)
 }

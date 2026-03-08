@@ -1,11 +1,18 @@
 package middleware
 
 import (
+	"expvar"
 	"fmt"
 	"net/http"
+	"sync"
 
 	"pet-study/internal/httputils"
 	"pet-study/internal/security"
+)
+
+var (
+	authzInitOnce  sync.Once
+	forbiddenTotal *expvar.Int
 )
 
 type AuthorizeAPI struct {
@@ -13,6 +20,10 @@ type AuthorizeAPI struct {
 }
 
 func NewAuthorizeAPI(policy []security.RouteRule) *AuthorizeAPI {
+	authzInitOnce.Do(func() {
+		forbiddenTotal = expvar.NewInt("authz_forbidden_total")
+	})
+
 	if len(policy) == 0 {
 		panic("AuthorizeAPI: policy is empty")
 	}
@@ -33,7 +44,6 @@ func NewAuthorizeAPI(policy []security.RouteRule) *AuthorizeAPI {
 
 func (a *AuthorizeAPI) Authorize(next httputils.AppHandler) httputils.AppHandler {
 	return func(w http.ResponseWriter, r *http.Request) error {
-		// preflight пропускаем (CORS short-circuit будет в S6-B8)
 		if r.Method == http.MethodOptions {
 			return next(w, r)
 		}
@@ -47,7 +57,7 @@ func (a *AuthorizeAPI) Authorize(next httputils.AppHandler) httputils.AppHandler
 
 		rule, ok := a.rules[pat]
 		if !ok {
-			// fail-closed: забыли занести маршрут в policy => закрываем доступ
+			forbiddenTotal.Add(1)
 			return security.NewForbidden(security.AuthZNoPolicyRule, nil)
 		}
 
@@ -68,11 +78,13 @@ func (a *AuthorizeAPI) Authorize(next httputils.AppHandler) httputils.AppHandler
 				return fmt.Errorf("authorize: principal missing (Authenticate must run before Authorize)")
 			}
 			if p.Role != security.RoleAdmin {
+				forbiddenTotal.Add(1)
 				return security.NewForbidden(security.AuthZAdminRequired, nil)
 			}
 			return next(w, r)
 
 		default:
+			forbiddenTotal.Add(1)
 			return security.NewForbidden(security.AuthZUnknownAccess, nil)
 		}
 	}

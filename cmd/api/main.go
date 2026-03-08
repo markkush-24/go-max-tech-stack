@@ -20,8 +20,8 @@ import (
 	"pet-study/internal/config"
 	"pet-study/internal/health"
 	"pet-study/internal/requestid"
-	"pet-study/internal/router"
-	"pet-study/internal/routes"
+	apirouter "pet-study/internal/router"
+	routes "pet-study/internal/routes"
 	"pet-study/internal/service"
 	"pet-study/internal/store/userrepo"
 	"pet-study/internal/workerpool"
@@ -114,7 +114,7 @@ func run() error {
 	corsAPI := middleware.NewCORS(cfg.CORS)
 	secAPI := middleware.NewSecurityHeaders(cfg.SecurityHeaders)
 
-	userRouter := router.NewRouter(
+	userRouter := apirouter.NewRouter(
 		userHandler,
 		userHandlerV2,
 		jobsHandler,
@@ -129,7 +129,7 @@ func run() error {
 
 	var debugRouter http.Handler
 	if cfg.HTTP.Debug {
-		rawDebug := router.NewDebugRouter()
+		rawDebug := apirouter.NewDebugRouter()
 
 		dbg := httputils.HandlerToApp(rawDebug)
 
@@ -139,8 +139,8 @@ func run() error {
 		debugRouter = dbg
 	}
 
-	healthRouter := router.NewHealthRouter(readiness)
-	rootRouter := router.NewRoot(userRouter, healthRouter, debugRouter)
+	healthRouter := apirouter.NewHealthRouter(readiness)
+	rootRouter := apirouter.NewRoot(userRouter, healthRouter, debugRouter)
 
 	// Middleware chain (execution order, outer -> inner):
 	// 1) Proxy.SanitizeRequestIDHeader (trust-only X-Request-Id)

@@ -1,4 +1,4 @@
-package routes_test
+package router_test
 
 import (
 	"bytes"
@@ -13,8 +13,8 @@ import (
 	"pet-study/internal/middleware"
 	"pet-study/internal/queue"
 	"pet-study/internal/requestid"
-	"pet-study/internal/router"
-	"pet-study/internal/routes"
+	apirouter "pet-study/internal/router"
+	routes "pet-study/internal/routes"
 	"pet-study/internal/security"
 	"pet-study/internal/service"
 	"pet-study/internal/store/jobrepo"
@@ -60,10 +60,10 @@ func TestQueueOverflowFastFail(t *testing.T) {
 
 	jh := routes.NewJobHandler(jobSvc)
 
-	userRouter := router.NewRouter(v1, v2, jh, nil, lim, bh, auth, rbac)
+	userRouter := apirouter.NewRouter(v1, v2, jh, nil, lim, bh, auth, rbac)
 
-	healthRouter := router.NewHealthRouter(readiness)
-	rootRouter := router.NewRoot(userRouter, healthRouter, nil)
+	healthRouter := apirouter.NewHealthRouter(readiness)
+	rootRouter := apirouter.NewRoot(userRouter, healthRouter, nil)
 
 	// Middleware chain (outer -> inner):
 	// RequestID -> Metrics -> Logger -> Recover -> Router
@@ -182,10 +182,10 @@ func TestJobNotFound(t *testing.T) {
 
 	jh := routes.NewJobHandler(jobSvc)
 
-	userRouter := router.NewRouter(v1, v2, jh, nil, lim, bh, auth, rbac)
+	userRouter := apirouter.NewRouter(v1, v2, jh, nil, lim, bh, auth, rbac)
 
 	//healthRouter := router.NewHealthRouter(readiness)
-	rootRouter := router.NewRoot(userRouter, http.NewServeMux(), nil)
+	rootRouter := apirouter.NewRoot(userRouter, http.NewServeMux(), nil)
 
 	// Middleware chain (outer -> inner):
 	// RequestID -> Metrics -> Logger -> Recover -> Router

@@ -1,12 +1,19 @@
 package middleware
 
 import (
+	"expvar"
 	"net/http"
 	"pet-study/internal/config"
 	"pet-study/internal/httputils"
-	"pet-study/internal/security"
 	"strconv"
 	"strings"
+	"sync"
+)
+
+var (
+	corsInitOnce       sync.Once
+	corsPreflightTotal *expvar.Int
+	corsDeniedTotal    *expvar.Int
 )
 
 type CORSAPI struct {
@@ -21,6 +28,11 @@ type CORSAPI struct {
 }
 
 func NewCORS(cfg config.CORSConfig) *CORSAPI {
+	corsInitOnce.Do(func() {
+		corsPreflightTotal = expvar.NewInt("cors_preflight_total")
+		corsDeniedTotal = expvar.NewInt("cors_denied_total")
+	})
+
 	a := &CORSAPI{
 		allowedOrigins:   map[string]struct{}{},
 		allowedMethods:   append([]string(nil), cfg.AllowedMethods...),
@@ -73,6 +85,7 @@ func (c *CORSAPI) CORS(next http.Handler) http.Handler {
 		}
 
 		if !c.isOriginAllowed(origin) {
+			corsDeniedTotal.Add(1)
 			_ = httputils.WriteProblem(w, r, httputils.Problem{
 				Status: http.StatusForbidden,
 				Detail: "cors origin denied",
@@ -88,6 +101,16 @@ func (c *CORSAPI) CORS(next http.Handler) http.Handler {
 			httputils.AddVary(w, "Origin")
 		}
 
+		if c.allowCredentials && allowOrigin == "*" {
+			// в этом режиме браузер всё равно откажет, лучше явно deny
+			corsDeniedTotal.Add(1)
+			_ = httputils.WriteProblem(w, r, httputils.Problem{
+				Status: http.StatusForbidden,
+				Detail: "cors credentials with wildcard origin is not allowed",
+			})
+			return
+		}
+
 		w.Header().Set("Access-Control-Allow-Origin", allowOrigin)
 		if c.allowCredentials {
 			w.Header().Set("Access-Control-Allow-Credentials", "true")
@@ -97,6 +120,7 @@ func (c *CORSAPI) CORS(next http.Handler) http.Handler {
 		if r.Method == http.MethodOptions && r.Header.Get("Access-Control-Request-Method") != "" {
 			reqMethod := strings.ToUpper(strings.TrimSpace(r.Header.Get("Access-Control-Request-Method")))
 			if !c.isMethodAllowed(reqMethod) {
+				corsDeniedTotal.Add(1)
 				_ = httputils.WriteProblem(w, r, httputils.Problem{
 					Status: http.StatusForbidden,
 					Detail: "cors method denied",
@@ -105,6 +129,7 @@ func (c *CORSAPI) CORS(next http.Handler) http.Handler {
 			}
 
 			if !c.areRequestHeadersAllowed(r.Header.Get("Access-Control-Request-Headers")) {
+				corsDeniedTotal.Add(1)
 				_ = httputils.WriteProblem(w, r, httputils.Problem{
 					Status: http.StatusForbidden,
 					Detail: "cors headers denied",
@@ -123,6 +148,7 @@ func (c *CORSAPI) CORS(next http.Handler) http.Handler {
 			httputils.AddVary(w, "Access-Control-Request-Method")
 			httputils.AddVary(w, "Access-Control-Request-Headers")
 
+			corsPreflightTotal.Add(1)
 			w.WriteHeader(http.StatusNoContent) // 204
 			return
 		}
@@ -162,5 +188,3 @@ func (c *CORSAPI) areRequestHeadersAllowed(acrh string) bool {
 	}
 	return true
 }
-
-var _ = security.AuthZKind // чтобы линтер не ругался, если security используется где-то ещё

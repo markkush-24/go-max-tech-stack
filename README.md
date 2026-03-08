@@ -437,3 +437,252 @@ go run $tmp
 ```powershell 
 curl.exe -i -H "Accept: application/json" http://localhost:8080/api/v1/users/1/profile
 ```
+
+## Step 6 — Security layer
+
+На этом шаге в сервис добавлены:
+
+- JWT authentication (`Authorization: Bearer <token>`)
+- RBAC authorization (`admin` / `user`)
+- resource-level authorization (`user` может читать только себя)
+- CORS (deny-by-default, preflight support)
+- security headers
+- trust proxy (`X-Forwarded-For`, `X-Forwarded-Proto`, `X-Request-Id` только от trusted proxy)
+
+### 1. JWT для локальной проверки
+
+Для локальной разработки используются dev-ключи JWT.  
+Если не переопределять конфиг, можно использовать следующие токены.
+
+#### Admin token
+```text
+eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6ImRldiJ9.eyJzdWIiOiIxIiwicm9sZSI6ImFkbWluIiwiZXhwIjoxODkzNDU2MDAwfQ.vUO8q4ilMk36iOimRFvdt_EWo5TXffr7Q3MIOMU3vIU
+```
+
+#### User token
+```text
+eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6ImRldiJ9.eyJzdWIiOiIxIiwicm9sZSI6InVzZXIiLCJleHAiOjE4OTM0NTYwMDB9.088yBOvdyuqkiHsBjQCETIUEZHH6U4O_RVV4nduojVc
+```
+
+Пример переменных для PowerShell:
+
+```powershell
+$Base = "http://localhost:8080"
+
+$AdminToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6ImRldiJ9.eyJzdWIiOiIxIiwicm9sZSI6ImFkbWluIiwiZXhwIjoxODkzNDU2MDAwfQ.vUO8q4ilMk36iOimRFvdt_EWo5TXffr7Q3MIOMU3vIU"
+$UserToken  = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6ImRldiJ9.eyJzdWIiOiIxIiwicm9sZSI6InVzZXIiLCJleHAiOjE4OTM0NTYwMDB9.088yBOvdyuqkiHsBjQCETIUEZHH6U4O_RVV4nduojVc"
+```
+
+### 2. AuthN / AuthZ поведение
+
+Поддерживается Bearer JWT через заголовок:
+
+```text
+Authorization: Bearer <jwt>
+```
+
+Семантика ответов:
+
+- `401 Unauthorized` — токен отсутствует / невалиден / истёк
+- `403 Forbidden` — токен валиден, но прав недостаточно
+
+Текущее поведение:
+
+- `GET /api/v1/users/{id}` — admin может читать любого, user только себя
+- `GET /api/v2/users/{id}` — admin может читать любого, user только себя
+- `GET /api/v1/jobs/{id}` — admin only
+- `GET /debug/*` — только при `HTTP_DEBUG=true`, и только admin
+- `/livez`, `/readyz` — без auth
+
+### 3. CORS
+
+CORS реализован как deny-by-default для запросов с `Origin`.
+
+Поддерживается:
+
+- allowlist origins
+- preflight `OPTIONS`
+- `Access-Control-Allow-Methods`
+- `Access-Control-Allow-Headers`
+- `Access-Control-Max-Age`
+- корректный `Vary`
+- запрет комбинации `Allow-Credentials=true` и `Access-Control-Allow-Origin=*`
+
+Пример для PowerShell перед запуском сервера:
+
+```powershell
+$env:CORS_ALLOWED_ORIGINS = "http://localhost:3000"
+$env:CORS_ALLOW_CREDENTIALS = "false"
+go run .\cmd\api
+```
+
+### 4. Security headers
+
+На API-ответы выставляются:
+
+- `X-Content-Type-Options: nosniff`
+- `Referrer-Policy: no-referrer`
+- `X-Frame-Options: DENY`
+
+HSTS (`Strict-Transport-Security`) выставляется только если запрос считается HTTPS:
+- напрямую через `r.TLS`
+- либо через trusted proxy и `X-Forwarded-Proto=https`
+
+### 5. Trusted proxies
+
+Forwarded-заголовки учитываются только от trusted proxy.
+
+Используются:
+
+- `X-Forwarded-For` → effective client IP
+- `X-Forwarded-Proto` → effective scheme (`http` / `https`)
+- `X-Request-Id` → принимается только от trusted proxy, иначе входящий header санитайзится
+
+Пример настройки для локальной проверки:
+
+```powershell
+$env:PROXY_TRUSTED_PROXIES = "127.0.0.1/32"
+$env:PROXY_TRUST_XFF = "true"
+$env:PROXY_TRUST_XFP = "true"
+go run .\cmd\api
+```
+
+### 6. Примеры curl (PowerShell)
+
+#### 6.1 Нет токена → 401
+```powershell
+curl.exe -i "$Base/api/v1/users/1"
+```
+
+#### 6.2 Admin создаёт пользователя
+```powershell
+curl.exe -i `
+  -H "Authorization: Bearer $AdminToken" `
+  -H "Content-Type: application/json" `
+  -d '{"name":"Bob","email":"bob@example.com","age":21}' `
+  "$Base/api/v1/users"
+```
+
+#### 6.3 User читает себя → 200
+```powershell
+curl.exe -i `
+  -H "Authorization: Bearer $UserToken" `
+  "$Base/api/v1/users/1"
+```
+
+#### 6.4 User читает чужого → 403
+```powershell
+curl.exe -i `
+  -H "Authorization: Bearer $UserToken" `
+  "$Base/api/v1/users/2"
+```
+
+#### 6.5 Debug без токена → 401
+```powershell
+curl.exe -i "$Base/debug/vars"
+```
+
+#### 6.6 Debug с user token → 403
+```powershell
+curl.exe -i `
+  -H "Authorization: Bearer $UserToken" `
+  "$Base/debug/vars"
+```
+
+#### 6.7 Debug с admin token → 200
+```powershell
+curl.exe -i `
+  -H "Authorization: Bearer $AdminToken" `
+  "$Base/debug/vars"
+```
+
+#### 6.8 CORS preflight → 204
+```powershell
+curl.exe -i -X OPTIONS "$Base/api/v1/users" `
+  -H "Origin: http://localhost:3000" `
+  -H "Access-Control-Request-Method: POST" `
+  -H "Access-Control-Request-Headers: authorization, content-type"
+```
+
+#### 6.9 Health endpoints без auth
+```powershell
+curl.exe -i "$Base/livez"
+curl.exe -i "$Base/readyz"
+```
+
+### 7. ETag / If-None-Match
+
+Для `GET /api/v1/users/{id}` поддерживаются `ETag` и `If-None-Match`.
+
+Получить `ETag`:
+
+```powershell
+$headers = curl.exe -s -D - -o NUL `
+  -H "Authorization: Bearer $UserToken" `
+  "$Base/api/v1/users/1"
+
+$etag = ($headers | Select-String -Pattern '^(?i)etag:\s*' | Select-Object -First 1).Line `
+  -replace '^(?i)etag:\s*',''
+$etag = $etag.Trim()
+$etag
+```
+
+Проверить `304 Not Modified`:
+
+```powershell
+curl.exe -i `
+  -H "Authorization: Bearer $UserToken" `
+  -H "If-None-Match: $etag" `
+  "$Base/api/v1/users/1"
+```
+
+### 8. Канонический порядок middleware
+
+Фактический порядок выполнения глобальной цепочки (outer -> inner):
+
+1. `Proxy.SanitizeRequestIDHeader`
+2. `RequestIDMiddleware`
+3. `Recover (outer)`
+4. `TrustProxy`
+5. `Metrics`
+6. `Logger`
+7. `Recover (inner)`
+8. `RootRouter`
+
+Для API subtree (outer -> inner):
+
+1. `SecurityHeaders`
+2. `CORS`
+3. `ServeMux router`
+4. `Bulkhead`
+5. `RateLimiter`
+6. `AuthN`
+7. `RBAC`
+8. `Handler`
+
+Инварианты:
+
+- preflight `OPTIONS` не требует auth
+- `/livez`, `/readyz` — без auth
+- `/debug/*` — только при `HTTP_DEBUG=true` и только для admin
+- `/debug/*` не учитывается в http metrics
+- основной путь матчинга остаётся через `ServeMux.ServeHTTP`, `r.Pattern` не ломается
+
+### 9. Security expvar metrics
+
+Добавлены метрики:
+
+- `authn_failures_total`
+- `authz_forbidden_total`
+- `cors_preflight_total`
+- `cors_denied_total`
+
+### 10. Проверка после изменений
+
+Базовая команда:
+
+```powershell
+go test ./...
+```
+
+Если всё настроено корректно, тесты Step 6 должны проходить полностью.

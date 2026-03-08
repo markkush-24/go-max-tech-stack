@@ -11,8 +11,8 @@ import (
 	"pet-study/internal/outbound/profile"
 	"pet-study/internal/queue"
 	"pet-study/internal/requestid"
-	"pet-study/internal/router"
-	"pet-study/internal/routes"
+	apirouter "pet-study/internal/router"
+	routes "pet-study/internal/routes"
 	"pet-study/internal/security"
 	"pet-study/internal/service"
 	"pet-study/internal/store/jobrepo"
@@ -96,7 +96,7 @@ func newEnv(t *testing.T) (*env, *service.UserService) {
 	auth := middleware.NewAuthAPI(ver)
 	rbac := middleware.NewAuthorizeAPI(security.DefaultPolicy)
 
-	api := router.NewRouter(v1, v2, jh, profileH, lim, bh, auth, rbac)
+	api := apirouter.NewRouter(v1, v2, jh, profileH, lim, bh, auth, rbac)
 
 	// важное: request-id должен быть наружу, чтобы Problem включал request_id
 	h := requestid.RequestIDMiddleware(api)
