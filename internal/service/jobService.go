@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"net/http"
 	"pet-study/internal/entity"
 )
 
@@ -36,4 +37,16 @@ func (s *JobService) SetSucceeded(ctx context.Context, id int64, res entity.JobR
 }
 func (s *JobService) SetFailed(ctx context.Context, id int64, p entity.JobProblem) error {
 	return s.repo.SetFailed(ctx, id, p)
+}
+
+func (s *JobService) FailActiveOnShutdown(ctx context.Context) (int, error) {
+	return s.repo.FailActive(ctx, ShutdownJobProblem())
+}
+
+func ShutdownJobProblem() entity.JobProblem {
+	return entity.JobProblem{
+		Title:  "service unavailable",
+		Detail: "job canceled: server shutting down",
+		Status: http.StatusServiceUnavailable,
+	}
 }

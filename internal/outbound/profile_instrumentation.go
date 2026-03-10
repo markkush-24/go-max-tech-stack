@@ -3,7 +3,7 @@ package outbound
 import (
 	"context"
 	"errors"
-	"log"
+	"log/slog"
 	"net/url"
 	"time"
 
@@ -15,10 +15,10 @@ type InstrumentedProfileClient struct {
 	next profile.Client
 	m    *metrics.OutboundMetrics
 	host string
-	l    *log.Logger
+	l    *slog.Logger
 }
 
-func NewInstrumentedProfileClient(baseURL *url.URL, next profile.Client, l *log.Logger) *InstrumentedProfileClient {
+func NewInstrumentedProfileClient(baseURL *url.URL, next profile.Client, l *slog.Logger) *InstrumentedProfileClient {
 	return &InstrumentedProfileClient{
 		next: next,
 		m:    metrics.DefaultOutbound(),
@@ -47,11 +47,28 @@ func (c *InstrumentedProfileClient) FetchProfile(ctx context.Context, userID int
 
 	if c.l != nil {
 		if err != nil {
-			c.l.Printf("outbound request_id=%s host=%s route=%s user_id=%d status=%d err=%v latency=%s",
-				requestID, c.host, route, userID, status, err, d)
+			c.l.Warn(
+				"outbound request failed",
+				"component", "outbound_profile",
+				"request_id", requestID,
+				"host", c.host,
+				"route", route,
+				"user_id", userID,
+				"status", status,
+				"latency_ms", d.Milliseconds(),
+				"err", err,
+			)
 		} else {
-			c.l.Printf("outbound request_id=%s host=%s route=%s user_id=%d status=%d latency=%s",
-				requestID, c.host, route, userID, status, d)
+			c.l.Info(
+				"outbound request completed",
+				"component", "outbound_profile",
+				"request_id", requestID,
+				"host", c.host,
+				"route", route,
+				"user_id", userID,
+				"status", status,
+				"latency_ms", d.Milliseconds(),
+			)
 		}
 	}
 

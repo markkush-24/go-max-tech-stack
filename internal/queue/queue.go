@@ -28,7 +28,7 @@ func (q *Queue) StopAccepting() {
 }
 
 func (q *Queue) Enqueue(ctx context.Context, item WorkItem) error {
-	if q.closed.Load() == true {
+	if q.closed.Load() {
 		return ErrQueueStopped
 	}
 	select {

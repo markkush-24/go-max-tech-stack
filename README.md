@@ -8,6 +8,7 @@ HTTP-сервис на Go (net/http, Go 1.25). Ресурс: **User**. Есть 
 ### Требования
 
 - Go **1.25**
+- Рекомендуемый patch level: **Go 1.25.8+**
 
 ### Локально
 
@@ -24,6 +25,39 @@ go run .\cmd\api
 ```
 
 По умолчанию сервер слушает `:8080`.
+
+## Tooling
+
+Для локальных quality checks в проекте зафиксированы версии:
+- `govulncheck`
+- `staticcheck`
+
+Установка на Windows PowerShell:
+
+```powershell
+.\scripts\install-tools.ps1
+```
+
+Проверка:
+
+```powershell
+.\scripts\check-format.ps1
+.\scripts\run-staticcheck.ps1
+.\scripts\run-race.ps1
+.\scripts\run-govulncheck.ps1
+```
+
+Полный локальный прогон:
+
+```powershell
+.\scripts\run-checks.ps1
+```
+
+CI:
+
+- GitHub Actions workflow: `.github/workflows/ci.yml`
+- Проверки в CI: `gofmt`, `go test`, `go vet`, `go test -race`, `staticcheck`, `govulncheck -mode binary`
+- Vulnerability scan собирает binary на patched toolchain `go1.25.8`
 
 ## Конфигурация (ENV)
 
@@ -106,6 +140,8 @@ Async режим включается query-параметром `async=1`:
 Статусы job: `queued`, `running`, `succeeded`, `failed`.
 
 Очередь bounded; политика переполнения: **fast-fail** → `503 Service Unavailable` (Problem+JSON).
+Shutdown semantics для async jobs: **fail-fast**. На остановке сервис перестаёт принимать новые job, а все job в состояниях
+`queued` и `running` переводятся в `failed` с причиной `job canceled: server shutting down`.
 
 ### Health
 
@@ -123,6 +159,7 @@ Async режим включается query-параметром `async=1`:
 
 Readiness:
 
+- `ready=true` выставляется только после успешного `listen/bind`
 - fail-fast `503`, если сервис помечен как not-ready (lifecycle)
 - далее выполняются checks (сейчас: `repo.Ping`, `workerpool`) с дедлайном **200ms**
 
@@ -195,8 +232,9 @@ Readiness:
     1) помечает readiness как not-ready
     2) прекращает принимать новые async задания в очередь
     3) вызывает `Server.Shutdown()` с дедлайном `HTTP_SHUTDOWN_TIMEOUT`
-    4) если дедлайн истёк → делает fallback `Server.Close()`
-    5) после остановки HTTP-сервера останавливается worker pool (без утечек горутин)
+    4) после остановки HTTP-сервера отменяет worker pool
+    5) все оставшиеся `queued` / `running` jobs переводятся в `failed` с причиной `job canceled: server shutting down`
+    6) если дедлайн истёк → делает fallback `Server.Close()`
 
 ## Примеры запросов (curl)
 

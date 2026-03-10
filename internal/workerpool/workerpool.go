@@ -3,7 +3,7 @@ package workerpool
 import (
 	"context"
 	"errors"
-	"log"
+	"log/slog"
 	"net/http"
 	"pet-study/internal/entity"
 	"pet-study/internal/httputils"
@@ -74,7 +74,7 @@ func (wp *WorkerPool) Stop(ctx context.Context) error {
 	wp.mu.Lock()
 	if !wp.running {
 		wp.mu.Unlock()
-		return nil
+		return wp.failActiveOnShutdown(ctx)
 	}
 	cancel := wp.cancel
 	wp.running = false
@@ -90,7 +90,7 @@ func (wp *WorkerPool) Stop(ctx context.Context) error {
 
 	select {
 	case <-done:
-		return nil
+		return wp.failActiveOnShutdown(ctx)
 	case <-ctx.Done():
 		return ctx.Err()
 	}
@@ -104,6 +104,7 @@ func (wp *WorkerPool) IsRunning() bool {
 
 func (wp *WorkerPool) workerLoop() {
 	defer wp.wg.Done()
+	logger := slog.Default().With("component", "worker_pool")
 
 	ch := wp.queue.Chan()
 
@@ -115,13 +116,19 @@ func (wp *WorkerPool) workerLoop() {
 			if !ok {
 				return
 			}
+			if wp.ctx.Err() != nil {
+				if err := wp.markJobFailed(item.JobID, service.ShutdownJobProblem()); err != nil {
+					logger.Error("failed to mark job as failed during shutdown", "job_id", item.JobID, "err", err)
+				}
+				return
+			}
 			err := wp.jobService.SetRunning(wp.ctx, item.JobID)
 			if err != nil {
 				if errors.Is(err, entity.ErrJobNotFound) {
-					log.Printf("job not found %d", item.JobID)
+					logger.Warn("job not found during transition to running", "job_id", item.JobID)
 					continue
 				} else {
-					log.Printf("Error when attempt SetRunning status for job  %d", item.JobID)
+					logger.Error("failed to set job running", "job_id", item.JobID, "err", err)
 					continue
 				}
 			}
@@ -130,8 +137,8 @@ func (wp *WorkerPool) workerLoop() {
 
 			user, userErr := wp.userService.CreateUser(wp.ctx, &item.Payload)
 			if userErr != nil {
-				if err := wp.jobService.SetFailed(wp.ctx, item.JobID, ToJobProblem(userErr)); err != nil {
-					log.Printf("setFailed job=%d: %v", item.JobID, err)
+				if err := wp.markJobFailed(item.JobID, ToJobProblem(userErr)); err != nil {
+					logger.Error("failed to mark job as failed", "job_id", item.JobID, "err", err)
 					continue
 				}
 				wp.jobsObserver.IncFailed()
@@ -140,7 +147,7 @@ func (wp *WorkerPool) workerLoop() {
 			}
 
 			if err := wp.jobService.SetSucceeded(wp.ctx, item.JobID, entity.JobResult{UserID: int64(user.ID)}); err != nil {
-				log.Printf("setSucceeded job=%d: %v", item.JobID, err)
+				logger.Error("failed to mark job as succeeded", "job_id", item.JobID, "err", err)
 				continue
 			}
 			wp.jobsObserver.IncSucceeded()
@@ -149,7 +156,30 @@ func (wp *WorkerPool) workerLoop() {
 	}
 }
 
+func (wp *WorkerPool) failActiveOnShutdown(ctx context.Context) error {
+	count, err := wp.jobService.FailActiveOnShutdown(ctx)
+	if err != nil {
+		return err
+	}
+	if count > 0 {
+		slog.Default().With("component", "worker_pool").Warn(
+			"marked active jobs failed on shutdown",
+			"count", count,
+		)
+	}
+	return nil
+}
+
+func (wp *WorkerPool) markJobFailed(id int64, problem entity.JobProblem) error {
+	return wp.jobService.SetFailed(context.Background(), id, problem)
+}
+
 func ToJobProblem(err error) entity.JobProblem {
+	switch {
+	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+		return service.ShutdownJobProblem()
+	}
+
 	var ve *httputils.ValidationError
 	if errors.As(err, &ve) {
 		jobInvalidParams := toJobInvalidParams(ve.InvalidParams)

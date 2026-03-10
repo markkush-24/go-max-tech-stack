@@ -1,11 +1,12 @@
 package middleware
 
 import (
-	"log"
+	"log/slog"
 	"net/http"
 	"pet-study/internal/httputils"
 	"pet-study/internal/requestid"
 	"pet-study/internal/security"
+	"runtime/debug"
 	"time"
 )
 
@@ -31,6 +32,7 @@ func (w *statusRecorder) Write(p []byte) (int, error) {
 
 func Logger(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		logger := slog.Default().With("component", "http_access")
 		start := time.Now()
 
 		sr, ok := w.(*statusRecorder)
@@ -54,27 +56,33 @@ func Logger(next http.Handler) http.Handler {
 			}
 		}
 
-		log.Printf(
-			"[LOG] Method -- {%s},"+
-				" UrlPath -- {%s},"+
-				" Pattern -- {%s},"+
-				" Status -- {%d},"+
-				" Bytes -- {%d} ,"+
-				" TimeSince -- {%v},"+
-				" RequestID=%s"+
-				" ClientIP=%s"+
-				" Scheme=%s",
-			r.Method, r.URL.Path, r.Pattern, sr.Status(), sr.Bytes(), time.Since(start), rid, clientIP, scheme,
+		logger.Info(
+			"http request completed",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"pattern", r.Pattern,
+			"status", sr.Status(),
+			"bytes", sr.Bytes(),
+			"latency_ms", time.Since(start).Milliseconds(),
+			"request_id", rid,
+			"client_ip", clientIP,
+			"scheme", scheme,
 		)
 	})
 }
 
 func Recover(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		logger := slog.Default().With("component", "http_recover")
 		defer func() {
 			if err := recover(); err != nil {
 				rid, _ := requestid.RequestID(r.Context())
-				log.Printf("panic request_id=%s err=%v", rid, err)
+				logger.Error(
+					"panic recovered",
+					"request_id", rid,
+					"err", err,
+					"stack", string(debug.Stack()),
+				)
 				_ = httputils.WriteProblem(w, r, httputils.Problem{
 					Status:    http.StatusInternalServerError,
 					Detail:    "internal server error",

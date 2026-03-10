@@ -13,4 +13,5 @@ type JobRepository interface {
 	SetRunning(ctx context.Context, id int64) error
 	SetSucceeded(ctx context.Context, id int64, res entity.JobResult) error
 	SetFailed(ctx context.Context, id int64, p entity.JobProblem) error
+	FailActive(ctx context.Context, p entity.JobProblem) (int, error)
 }

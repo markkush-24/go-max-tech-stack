@@ -89,7 +89,6 @@ func (h *UsersHandler) Create(w http.ResponseWriter, r *http.Request) error {
 		w.Header().Set("Location", fmt.Sprintf("/api/v1/users/%d", u.ID))
 		return httputils.WriteJSON(w, http.StatusCreated, u)
 	}
-	return nil
 }
 
 func (h *UsersHandler) GetByID(w http.ResponseWriter, r *http.Request, id int) error {

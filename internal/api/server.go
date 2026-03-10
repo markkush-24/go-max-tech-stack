@@ -3,7 +3,8 @@ package api
 import (
 	"context"
 	"errors"
-	"log"
+	"log/slog"
+	"net"
 	"net/http"
 	"pet-study/internal/config"
 	"pet-study/internal/health"
@@ -36,6 +37,7 @@ func NewAPIServer(
 }
 
 func (s *APIServer) Run(ctx context.Context) error {
+	logger := slog.Default().With("component", "api_server")
 	srv := &http.Server{
 		Addr:              s.config.HTTP.Addr,
 		Handler:           s.router,
@@ -46,19 +48,24 @@ func (s *APIServer) Run(ctx context.Context) error {
 		MaxHeaderBytes:    s.config.HTTP.MaxHeaderBytes,
 	}
 
+	ln, err := net.Listen("tcp", s.config.HTTP.Addr)
+	if err != nil {
+		return err
+	}
+
 	errCh := make(chan error, 1)
 
 	go func() {
-		log.Printf("HTTP server listening on %s", s.config.HTTP.Addr)
+		logger.Info("http server listening", "addr", ln.Addr().String())
 
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
 			errCh <- err
 		}
 		close(errCh)
 	}()
 
 	s.readiness.SetReady()
-	log.Println("Set ready true")
+	logger.Info("readiness changed", "ready", true)
 
 	defer func() {
 		s.queue.StopAccepting()
@@ -67,15 +74,15 @@ func (s *APIServer) Run(ctx context.Context) error {
 		defer cancel()
 
 		if err := s.pool.Stop(stopCtx); err != nil {
-			log.Printf("worker pool stop: %v", err)
+			logger.Error("worker pool stop failed", "err", err)
 		}
 	}()
 
 	select {
 	case <-ctx.Done():
-		log.Println("shutting down...")
+		logger.Info("shutdown started")
 		s.readiness.SetNotReady()
-		log.Println("Set ready false")
+		logger.Info("readiness changed", "ready", false)
 
 		sdCtx, cancel := context.WithTimeout(context.Background(), s.config.HTTP.ShutdownTimeout)
 		defer cancel()
@@ -84,7 +91,7 @@ func (s *APIServer) Run(ctx context.Context) error {
 
 		if err := srv.Shutdown(sdCtx); err != nil {
 			if errors.Is(err, context.DeadlineExceeded) {
-				log.Printf("shutdown timeout (%s), forcing close", s.config.HTTP.ShutdownTimeout)
+				logger.Warn("shutdown timeout, forcing close", "timeout", s.config.HTTP.ShutdownTimeout.String())
 
 				// fallback: жёстко закрываем
 				if closeErr := srv.Close(); closeErr != nil {
@@ -106,11 +113,11 @@ func (s *APIServer) Run(ctx context.Context) error {
 
 	case err := <-errCh:
 		if err == nil {
-			log.Println("server stopped")
+			logger.Info("server stopped")
 			return nil
 		}
 
-		log.Printf("http server error: %v", err)
+		logger.Error("http server error", "err", err)
 		return err
 	}
 }

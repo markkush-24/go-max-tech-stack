@@ -131,3 +131,26 @@ func (r *MemoryJobRepository) SetFailed(ctx context.Context, id int64, p entity.
 	job.Result = nil
 	return nil
 }
+
+func (r *MemoryJobRepository) FailActive(ctx context.Context, p entity.JobProblem) (int, error) {
+	r.mux.Lock()
+	defer r.mux.Unlock()
+
+	failed := 0
+	for _, job := range r.jobs {
+		if job.Status != entity.JobQueued && job.Status != entity.JobRunning {
+			continue
+		}
+
+		job.Status = entity.JobFailed
+		pp := p
+		if pp.InvalidParams != nil {
+			pp.InvalidParams = append([]entity.JobInvalidParam(nil), pp.InvalidParams...)
+		}
+		job.Error = &pp
+		job.Result = nil
+		failed++
+	}
+
+	return failed, nil
+}

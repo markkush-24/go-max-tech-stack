@@ -1,8 +1,9 @@
 package httputils
 
 import (
-	"log"
+	"log/slog"
 	"net/http"
+	"pet-study/internal/requestid"
 )
 
 type AppHandler func(w http.ResponseWriter, r *http.Request) error
@@ -19,7 +20,14 @@ func (h AppHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if mp.Log {
-			log.Printf("request failed: method=%s path=%s err=%v", r.Method, r.URL.Path, err)
+			rid, _ := requestid.RequestID(r.Context())
+			slog.Default().With("component", "app_handler").Error(
+				"request failed",
+				"method", r.Method,
+				"path", r.URL.Path,
+				"request_id", rid,
+				"err", err,
+			)
 		}
 
 		_ = WriteProblem(w, r, mp.Problem)

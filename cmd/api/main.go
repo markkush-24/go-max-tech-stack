@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -28,12 +28,19 @@ import (
 )
 
 func main() {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	}))
+	slog.SetDefault(logger)
+
 	if err := run(); err != nil {
-		log.Fatal(err)
+		logger.Error("application exited", "component", "main", "err", err)
+		os.Exit(1)
 	}
 }
 
 func run() error {
+	logger := slog.Default().With("component", "main")
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -71,7 +78,7 @@ func run() error {
 	httpClient, tr := httpclient.New(cfg.Outbound)
 	defer tr.CloseIdleConnections()
 	rawProfileClient := outbound.NewClientImpl(cfg.Outbound.Profile.Base, httpClient)
-	instrumented := outbound.NewInstrumentedProfileClient(cfg.Outbound.Profile.Base, rawProfileClient, log.Default())
+	instrumented := outbound.NewInstrumentedProfileClient(cfg.Outbound.Profile.Base, rawProfileClient, logger)
 
 	profileClient := outbound.NewRetryingProfileClient(
 		cfg.Outbound.Retry.MaxAttempts,
@@ -161,6 +168,6 @@ func run() error {
 	handler = proxyAPI.SanitizeRequestIDHeader(handler)
 
 	server := api.NewAPIServer(cfg, handler, readiness, pool, q)
-	log.Printf("config: addr=%s debug=%v", cfg.HTTP.Addr, cfg.HTTP.Debug)
+	logger.Info("application configured", "addr", cfg.HTTP.Addr, "debug", cfg.HTTP.Debug)
 	return server.Run(ctx)
 }

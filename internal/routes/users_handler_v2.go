@@ -88,7 +88,6 @@ func (h *UsersV2Handler) Create(w http.ResponseWriter, r *http.Request) error {
 		w.Header().Set("Location", fmt.Sprintf("/api/v2/users/%d", created.ID))
 		return httputils.WriteJSON(w, http.StatusCreated, entity.MapUserDTOToV2(created))
 	}
-	return nil
 }
 
 func (h *UsersV2Handler) GetByID(w http.ResponseWriter, r *http.Request, id int) error {
