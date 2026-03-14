@@ -93,8 +93,14 @@ func newEnv(t *testing.T) (*env, *service.UserService) {
 		"admin": {UserID: 999, Role: security.RoleAdmin},
 	}}
 
-	auth := middleware.NewAuthAPI(ver)
-	rbac := middleware.NewAuthorizeAPI(security.DefaultPolicy)
+	auth, err := middleware.NewAuthAPI(ver)
+	if err != nil {
+		t.Fatalf("NewAuthAPI: %v", err)
+	}
+	rbac, err := middleware.NewAuthorizeAPI(security.DefaultPolicy)
+	if err != nil {
+		t.Fatalf("NewAuthorizeAPI: %v", err)
+	}
 
 	api := apirouter.NewRouter(v1, v2, jh, profileH, lim, bh, auth, rbac)
 

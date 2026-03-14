@@ -1,10 +1,9 @@
-package router_test
+package routes_test
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"google.golang.org/protobuf/proto"
 	"io"
 	"mime"
 	"net/http"
@@ -13,6 +12,8 @@ import (
 	"pet-study/internal/transport/pb"
 	"strings"
 	"testing"
+
+	"google.golang.org/protobuf/proto"
 )
 
 func TestUsersGetByID_Negotiate(t *testing.T) {

@@ -22,6 +22,23 @@ type HTTPConfig struct {
 	Debug             bool
 }
 
+type TLS struct {
+	Enable   bool
+	Addr     string
+	CertFile string
+	KeyFile  string
+}
+
+type GRPC struct {
+	Enable bool
+	Addr   string
+}
+
+type Streaming struct {
+	SSEHeartbeat     string
+	SubscriberBuffer string
+	WriteTimeout     string
+}
 type DBConfig struct {
 	DSN string
 }

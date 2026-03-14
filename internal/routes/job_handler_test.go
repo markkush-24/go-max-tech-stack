@@ -1,4 +1,4 @@
-package router_test
+package routes_test
 
 import (
 	"bytes"
@@ -14,7 +14,7 @@ import (
 	"pet-study/internal/queue"
 	"pet-study/internal/requestid"
 	apirouter "pet-study/internal/router"
-	routes "pet-study/internal/routes"
+	"pet-study/internal/routes"
 	"pet-study/internal/security"
 	"pet-study/internal/service"
 	"pet-study/internal/store/jobrepo"
@@ -41,7 +41,7 @@ func TestQueueOverflowFastFail(t *testing.T) {
 
 	q := queue.New(1)
 	pool := workerpool.NewWorkerPool(q, jobSvc, userSvc, m)
-	err := pool.Start(0)
+	err := pool.Start(context.Background(), 0)
 	if err != nil {
 		t.Fatalf("start workerpool: %v", err)
 	}
@@ -55,8 +55,14 @@ func TestQueueOverflowFastFail(t *testing.T) {
 
 	lim := middleware.NewRateLimitedAPI(float64(10), 5)
 	bh := middleware.NewBulkhead(1)
-	auth := middleware.NewAuthAPI(testkit.StubVerifier{P: security.Principal{UserID: 1, Role: security.RoleAdmin}})
-	rbac := middleware.NewAuthorizeAPI(security.DefaultPolicy)
+	auth, err := middleware.NewAuthAPI(testkit.StubVerifier{P: security.Principal{UserID: 1, Role: security.RoleAdmin}})
+	if err != nil {
+		t.Fatalf("NewAuthAPI: %v", err)
+	}
+	rbac, err := middleware.NewAuthorizeAPI(security.DefaultPolicy)
+	if err != nil {
+		t.Fatalf("NewAuthorizeAPI: %v", err)
+	}
 
 	jh := routes.NewJobHandler(jobSvc)
 
@@ -177,8 +183,14 @@ func TestJobNotFound(t *testing.T) {
 	lim := middleware.NewRateLimitedAPI(float64(10), 5)
 	bh := middleware.NewBulkhead(1)
 
-	auth := middleware.NewAuthAPI(testkit.StubVerifier{P: security.Principal{UserID: 1, Role: security.RoleAdmin}})
-	rbac := middleware.NewAuthorizeAPI(security.DefaultPolicy)
+	auth, err := middleware.NewAuthAPI(testkit.StubVerifier{P: security.Principal{UserID: 1, Role: security.RoleAdmin}})
+	if err != nil {
+		t.Fatalf("NewAuthAPI: %v", err)
+	}
+	rbac, err := middleware.NewAuthorizeAPI(security.DefaultPolicy)
+	if err != nil {
+		t.Fatalf("NewAuthorizeAPI: %v", err)
+	}
 
 	jh := routes.NewJobHandler(jobSvc)
 

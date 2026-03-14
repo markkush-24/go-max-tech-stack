@@ -30,7 +30,10 @@ type authProblem struct {
 }
 
 func TestAuth_ExpiredToken_401(t *testing.T) {
-	auth := NewAuthAPI(expiredVerifier{})
+	auth, err := NewAuthAPI(expiredVerifier{})
+	if err != nil {
+		t.Fatalf("NewAuthAPI: %v", err)
+	}
 
 	app := httputils.AppHandler(func(w http.ResponseWriter, r *http.Request) error {
 		w.WriteHeader(http.StatusNoContent)

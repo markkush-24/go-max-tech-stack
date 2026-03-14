@@ -181,8 +181,14 @@ func NewUserRouter(t *testing.T, opts ...Option) (http.Handler, *App) {
 
 	app, o := newApp(t, opts...)
 	ver := StubVerifier{P: o.principal, Token: o.authToken}
-	auth := middleware.NewAuthAPI(ver)
-	rbac := middleware.NewAuthorizeAPI(o.policy)
+	auth, err := middleware.NewAuthAPI(ver)
+	if err != nil {
+		t.Fatalf("NewAuthAPI: %v", err)
+	}
+	rbac, err := middleware.NewAuthorizeAPI(o.policy)
+	if err != nil {
+		t.Fatalf("NewAuthorizeAPI: %v", err)
+	}
 	userRouter := apirouter.NewRouter(app.V1, app.V2, app.JH, o.usersProfile, app.Limiter, app.Bulkhead, auth, rbac)
 	if o.corsConfig != nil {
 		corsAPI := middleware.NewCORS(*o.corsConfig)
@@ -210,8 +216,14 @@ func NewServer(t *testing.T, opts ...Option) (*httptest.Server, *App) {
 
 	app, o := newApp(t, opts...)
 	ver := StubVerifier{P: o.principal, Token: o.authToken}
-	auth := middleware.NewAuthAPI(ver)
-	rbac := middleware.NewAuthorizeAPI(o.policy)
+	auth, err := middleware.NewAuthAPI(ver)
+	if err != nil {
+		t.Fatalf("NewAuthAPI: %v", err)
+	}
+	rbac, err := middleware.NewAuthorizeAPI(o.policy)
+	if err != nil {
+		t.Fatalf("NewAuthorizeAPI: %v", err)
+	}
 	userRouter := apirouter.NewRouter(app.V1, app.V2, app.JH, o.usersProfile, app.Limiter, app.Bulkhead, auth, rbac)
 
 	if o.corsConfig != nil {

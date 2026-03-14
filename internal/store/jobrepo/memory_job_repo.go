@@ -13,6 +13,9 @@ func NewMemoryJobRepository() *MemoryJobRepository {
 	}
 }
 
+// MemoryJobRepository — in-memory реализация job storage.
+// Здесь нет реального I/O, поэтому ctx не участвует в ожиданиях/отмене,
+// а используется только как часть общего контракта интерфейса.
 type MemoryJobRepository struct {
 	jobs   map[int64]*entity.Job
 	mux    sync.RWMutex

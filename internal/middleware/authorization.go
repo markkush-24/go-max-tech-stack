@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"errors"
 	"expvar"
 	"net/http"
 	"pet-study/internal/httputils"
@@ -18,15 +19,15 @@ type AuthAPI struct {
 	verifier security.Verifier
 }
 
-func NewAuthAPI(verifier security.Verifier) *AuthAPI {
+func NewAuthAPI(verifier security.Verifier) (*AuthAPI, error) {
 	authnInitOnce.Do(func() {
 		authnFailures = expvar.NewMap("authn_failures_total")
 	})
 
 	if verifier == nil {
-		panic("AuthAPI: verifier is nil")
+		return nil, errors.New("auth api: verifier is nil")
 	}
-	return &AuthAPI{verifier: verifier}
+	return &AuthAPI{verifier: verifier}, nil
 }
 
 func (a *AuthAPI) Authenticate(next httputils.AppHandler) httputils.AppHandler {

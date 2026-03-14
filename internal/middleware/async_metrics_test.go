@@ -20,7 +20,7 @@ func TestIncreaseJobAsyncMetricsWithLatency(t *testing.T) {
 	server, app := testkit.NewServer(t)
 
 	pool := workerpool.NewWorkerPool(app.Q, app.JobSvc, app.UserSvc, app.M)
-	err := pool.Start(1)
+	err := pool.Start(context.Background(), 1)
 	if err != nil {
 		t.Fatalf("start workerpool: %v", err)
 	}

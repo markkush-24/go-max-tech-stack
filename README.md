@@ -142,6 +142,8 @@ Async режим включается query-параметром `async=1`:
 Очередь bounded; политика переполнения: **fast-fail** → `503 Service Unavailable` (Problem+JSON).
 Shutdown semantics для async jobs: **fail-fast**. На остановке сервис перестаёт принимать новые job, а все job в состояниях
 `queued` и `running` переводятся в `failed` с причиной `job canceled: server shutting down`.
+Worker pool хранит свой внутренний lifecycle-context только для времени жизни воркеров; это не request-context, а
+производный context приложения, передаваемый из `main`.
 
 ### Health
 
@@ -160,8 +162,15 @@ Shutdown semantics для async jobs: **fail-fast**. На остановке с�
 Readiness:
 
 - `ready=true` выставляется только после успешного `listen/bind`
+- для этого сервер стартует через `net.Listen + Serve`: `ListenAndServe()` скрывает фазу bind внутри себя, поэтому при
+  старом запуске readiness мог стать `true` ещё до подтверждения, что порт действительно занят процессом
 - fail-fast `503`, если сервис помечен как not-ready (lifecycle)
 - далее выполняются checks (сейчас: `repo.Ping`, `workerpool`) с дедлайном **200ms**
+
+Примечание про in-memory хранилища:
+
+- in-memory репозитории почти не используют `ctx`, потому что в них нет реального блокирующего I/O
+- это нормально для учебной/in-memory реализации, но не считается заменой корректной cancel/timeout дисциплины для будущего DB-слоя
 
 ### Debug (только при `HTTP_DEBUG=true`)
 

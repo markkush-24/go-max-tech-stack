@@ -19,8 +19,14 @@ func newDebugServer(t *testing.T, principal security.Principal, injectAuth bool)
 	rawDebug := router.NewDebugRouter()
 
 	ver := testkit.StubVerifier{P: principal}
-	auth := middleware.NewAuthAPI(ver)
-	rbac := middleware.NewAuthorizeAPI(security.DefaultPolicy)
+	auth, err := middleware.NewAuthAPI(ver)
+	if err != nil {
+		t.Fatalf("NewAuthAPI: %v", err)
+	}
+	rbac, err := middleware.NewAuthorizeAPI(security.DefaultPolicy)
+	if err != nil {
+		t.Fatalf("NewAuthorizeAPI: %v", err)
+	}
 
 	dbg := httputils.HandlerToApp(rawDebug)
 	dbg = rbac.Authorize(dbg)

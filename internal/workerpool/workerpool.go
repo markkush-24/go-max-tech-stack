@@ -16,6 +16,10 @@ import (
 
 var ErrPoolNotRunning = errors.New("worker pool not running")
 
+// WorkerPool — lifecycle-компонент приложения для async jobs.
+// Он хранит внутренний context только для времени жизни воркеров:
+// этот context создаётся в Start из родительского app-context и не
+// используется как request-scoped context.
 type WorkerPool struct {
 	queue        *queue.Queue
 	jobService   *service.JobService
@@ -51,7 +55,7 @@ func (wp *WorkerPool) CheckRunning(ctx context.Context) error {
 	return nil
 }
 
-func (wp *WorkerPool) Start(workers int) error {
+func (wp *WorkerPool) Start(ctx context.Context, workers int) error {
 	wp.mu.Lock()
 	defer wp.mu.Unlock()
 
@@ -59,7 +63,7 @@ func (wp *WorkerPool) Start(workers int) error {
 		return nil
 	}
 
-	wp.ctx, wp.cancel = context.WithCancel(context.Background())
+	wp.ctx, wp.cancel = context.WithCancel(ctx)
 	wp.running = true
 
 	for i := 0; i < workers; i++ {
@@ -171,6 +175,8 @@ func (wp *WorkerPool) failActiveOnShutdown(ctx context.Context) error {
 }
 
 func (wp *WorkerPool) markJobFailed(id int64, problem entity.JobProblem) error {
+	// После отмены worker lifecycle-context нам всё ещё важно записать
+	// terminal state job, поэтому здесь используется независимый context.
 	return wp.jobService.SetFailed(context.Background(), id, problem)
 }
 

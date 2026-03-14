@@ -65,7 +65,7 @@ func run() error {
 	//Async
 	q := queue.New(cfg.Pool.QueueSize)
 	pool := workerpool.NewWorkerPool(q, jobService, userService, m)
-	poolErr := pool.Start(cfg.Pool.Workers)
+	poolErr := pool.Start(ctx, cfg.Pool.Workers)
 	if poolErr != nil {
 		return poolErr
 	}
@@ -115,8 +115,15 @@ func run() error {
 		return err
 	}
 
-	authAPI := middleware.NewAuthAPI(verifier)
-	rbacAPI := middleware.NewAuthorizeAPI(security.DefaultPolicy)
+	authAPI, err := middleware.NewAuthAPI(verifier)
+	if err != nil {
+		return err
+	}
+
+	rbacAPI, err := middleware.NewAuthorizeAPI(security.DefaultPolicy)
+	if err != nil {
+		return err
+	}
 
 	corsAPI := middleware.NewCORS(cfg.CORS)
 	secAPI := middleware.NewSecurityHeaders(cfg.SecurityHeaders)

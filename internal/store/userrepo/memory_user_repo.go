@@ -10,6 +10,10 @@ import (
 
 var _ service.UserRepository = (*MemoryUserRepository)(nil)
 
+// MemoryUserRepository — in-memory реализация репозитория пользователей.
+// Так как здесь нет блокирующего I/O, методы почти не используют ctx;
+// это нормально для тестовой/учебной реализации, но не заменяет
+// дисциплину cancel/timeout для будущего DB-backed слоя.
 type MemoryUserRepository struct {
 	users  map[int]*entity.User
 	mux    sync.RWMutex
@@ -54,6 +58,12 @@ func (r *MemoryUserRepository) GetByID(ctx context.Context, id int) (*entity.Use
 func (r *MemoryUserRepository) Save(ctx context.Context, user *entity.User) error {
 	r.mux.Lock()
 	defer r.mux.Unlock()
+
+	for _, u := range r.users {
+		if strings.EqualFold(u.Email, user.Email) {
+			return service.ErrConflict
+		}
+	}
 
 	if user.ID == 0 {
 		user.ID = r.nextID
