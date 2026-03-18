@@ -8,6 +8,7 @@ import (
 	"pet-study/internal/config"
 	"pet-study/internal/entity"
 	"pet-study/internal/security"
+	"pet-study/internal/stream"
 	"testing"
 	"time"
 
@@ -155,8 +156,9 @@ func newApp(t *testing.T, opts ...Option) (*App, options) {
 	lim := middleware.NewRateLimitedAPI(o.rps, o.burst)
 	bh := middleware.NewBulkhead(o.bulkhead)
 
-	v1 := routes.NewUserHandler(userSvc, jobSvc, q, m)
-	v2 := routes.NewUserV2Handler(userSvc, jobSvc, q, m)
+	hub := stream.NewHub(16)
+	v1 := routes.NewUserHandler(userSvc, jobSvc, q, m, hub)
+	v2 := routes.NewUserV2Handler(userSvc, jobSvc, q, m, hub)
 	jh := routes.NewJobHandler(jobSvc)
 
 	app := &App{

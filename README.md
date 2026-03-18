@@ -26,6 +26,26 @@ go run .\cmd\api
 
 По умолчанию сервер слушает `:8080`.
 
+### Локальный HTTPS
+
+HTTPS listener опционален и использует тот же handler chain, что и обычный HTTP.
+
+PowerShell:
+
+```powershell
+$env:HTTP_TLS_ENABLE="true"
+$env:HTTP_TLS_ADDR=":8443"
+$env:HTTP_TLS_CERT_FILE="C:\path\to\server.crt"
+$env:HTTP_TLS_KEY_FILE="C:\path\to\server.key"
+go run .\cmd\api
+```
+
+Проверка с self-signed сертификатом:
+
+```powershell
+curl.exe -k https://localhost:8443/livez
+```
+
 ## Tooling
 
 Для локальных quality checks в проекте зафиксированы версии:
@@ -74,6 +94,10 @@ CI:
 | `HTTP_SHUTDOWN_TIMEOUT`                      | duration |                        `10s` | Дедлайн на graceful shutdown                                                           |
 | `HTTP_MAX_HEADER_BYTES`                      |      int | `http.DefaultMaxHeaderBytes` | Лимит размера заголовков                                                               |
 | `HTTP_DEBUG`                                 |     bool |                      `false` | Включить debug endpoints (`/debug/...`)                                                |
+| `HTTP_TLS_ENABLE`                            |     bool |                      `false` | Включить дополнительный HTTPS listener                                                 |
+| `HTTP_TLS_ADDR`                              |   string |                      `:8443` | Адрес HTTPS listener                                                                   |
+| `HTTP_TLS_CERT_FILE`                         |   string |                    *(пусто)* | Путь к PEM-сертификату сервера; обязателен при `HTTP_TLS_ENABLE=true`                  |
+| `HTTP_TLS_KEY_FILE`                          |   string |                    *(пусто)* | Путь к PEM-ключу сервера; обязателен при `HTTP_TLS_ENABLE=true`                        |
 | `DB_DSN`                                     |   string |                    *(пусто)* | Опционально (в Step 3 используется in-memory repo). Если задана — должна быть непустой |
 | `WORKERS_COUNT`                              |      int |                           10 | Кол-во воркеров worker pool для обработки async jobs (должно быть > 0)                 |
 | `QUEUE_SIZE`                                 |      int |                           10 | Размер bounded очереди для async jobs                                                  |

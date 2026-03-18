@@ -1,0 +1,145 @@
+package stream
+
+import (
+	"expvar"
+	"sync"
+	"time"
+)
+
+var (
+	outOnce        sync.Once
+	sseSubscribers *expvar.Map
+	sseEventsTotal *expvar.Map
+	sseDropsTotal  *expvar.Map
+)
+
+type Hub struct {
+	mu               sync.Mutex
+	subs             map[int64]map[uint64]*subscriber
+	nextID           uint64
+	subscriberBuffer int
+
+	subscribers int64
+	eventsTotal int64
+	dropsTotal  int64
+}
+
+type Subscription struct {
+	C <-chan Event
+}
+
+type Event struct {
+	Type  string
+	JobID int64
+	At    time.Time
+	Data  any
+}
+
+type subscriber struct {
+	id    uint64
+	jobID int64
+	ch    chan Event
+}
+
+func NewHub(subscriberBuffer int) *Hub {
+	outOnce.Do(func() {
+		sseSubscribers = expvar.NewMap("sse_subscribers")
+		sseEventsTotal = expvar.NewMap("sse_events_total")
+		sseDropsTotal = expvar.NewMap("sse_drops_total")
+	})
+
+	if subscriberBuffer <= 0 {
+		panic("subscriberBuffer must be > 0")
+	}
+
+	return &Hub{
+		subs:             make(map[int64]map[uint64]*subscriber),
+		subscriberBuffer: subscriberBuffer,
+	}
+}
+
+func (h *Hub) Subscribe(jobID int64) (Subscription, func()) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	h.nextID++
+	id := h.nextID
+
+	ch := make(chan Event, h.subscriberBuffer)
+
+	if h.subs[jobID] == nil {
+		h.subs[jobID] = make(map[uint64]*subscriber)
+	}
+
+	h.subs[jobID][id] = &subscriber{
+		id:    id,
+		jobID: jobID,
+		ch:    ch,
+	}
+
+	h.subscribers++
+	sseSubscribers.Add("subscribers", 1)
+
+	var once sync.Once
+
+	unsubscribe := func() {
+		once.Do(func() {
+			h.mu.Lock()
+			defer h.mu.Unlock()
+
+			jobSubs, ok := h.subs[jobID]
+			if !ok {
+				return
+			}
+
+			if _, ok := jobSubs[id]; !ok {
+				return
+			}
+
+			delete(jobSubs, id)
+			h.subscribers--
+			sseSubscribers.Add("subscribers", -1)
+
+			if len(jobSubs) == 0 {
+				delete(h.subs, jobID)
+			}
+		})
+	}
+
+	return Subscription{C: ch}, unsubscribe
+}
+
+func (h *Hub) Publish(jobID int64, ev Event) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	h.eventsTotal++
+	sseEventsTotal.Add("eventsTotal", 1)
+
+	for _, sub := range h.subs[jobID] {
+		select {
+		case sub.ch <- ev:
+		default:
+			h.dropsTotal++
+			sseDropsTotal.Add("dropsTotal", 1)
+		}
+	}
+}
+
+func (h *Hub) Subscribers() int64 {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.subscribers
+}
+
+func (h *Hub) EventsTotal() int64 {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.eventsTotal
+}
+
+func (h *Hub) DropsTotal() int64 {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.dropsTotal
+}

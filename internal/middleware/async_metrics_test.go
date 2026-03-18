@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"pet-study/internal/entity"
+	"pet-study/internal/stream"
 	"pet-study/internal/testkit"
 	"pet-study/internal/workerpool"
 	"strconv"
@@ -19,7 +20,8 @@ import (
 func TestIncreaseJobAsyncMetricsWithLatency(t *testing.T) {
 	server, app := testkit.NewServer(t)
 
-	pool := workerpool.NewWorkerPool(app.Q, app.JobSvc, app.UserSvc, app.M)
+	hub := stream.NewHub(16)
+	pool := workerpool.NewWorkerPool(app.Q, app.JobSvc, app.UserSvc, app.M, hub)
 	err := pool.Start(context.Background(), 1)
 	if err != nil {
 		t.Fatalf("start workerpool: %v", err)

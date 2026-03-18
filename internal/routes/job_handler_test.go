@@ -19,6 +19,7 @@ import (
 	"pet-study/internal/service"
 	"pet-study/internal/store/jobrepo"
 	"pet-study/internal/store/userrepo"
+	"pet-study/internal/stream"
 	"pet-study/internal/testkit"
 	"pet-study/internal/workerpool"
 	"time"
@@ -39,8 +40,9 @@ func TestQueueOverflowFastFail(t *testing.T) {
 	// Metrics registry
 	m := metrics.DefaultHTTP()
 
+	hub := stream.NewHub(16)
 	q := queue.New(1)
-	pool := workerpool.NewWorkerPool(q, jobSvc, userSvc, m)
+	pool := workerpool.NewWorkerPool(q, jobSvc, userSvc, m, hub)
 	err := pool.Start(context.Background(), 0)
 	if err != nil {
 		t.Fatalf("start workerpool: %v", err)
@@ -50,8 +52,8 @@ func TestQueueOverflowFastFail(t *testing.T) {
 		health.Check{Name: "repo", Fn: userRepo.Ping},
 		health.Check{Name: "workerpool", Fn: pool.CheckRunning})
 
-	v1 := routes.NewUserHandler(userSvc, jobSvc, q, m)
-	v2 := routes.NewUserV2Handler(userSvc, jobSvc, q, m)
+	v1 := routes.NewUserHandler(userSvc, jobSvc, q, m, hub)
+	v2 := routes.NewUserV2Handler(userSvc, jobSvc, q, m, hub)
 
 	lim := middleware.NewRateLimitedAPI(float64(10), 5)
 	bh := middleware.NewBulkhead(1)
@@ -177,8 +179,9 @@ func TestJobNotFound(t *testing.T) {
 
 	q := queue.New(1)
 
-	v1 := routes.NewUserHandler(userSvc, jobSvc, q, m)
-	v2 := routes.NewUserV2Handler(userSvc, jobSvc, q, m)
+	hub := stream.NewHub(16)
+	v1 := routes.NewUserHandler(userSvc, jobSvc, q, m, hub)
+	v2 := routes.NewUserV2Handler(userSvc, jobSvc, q, m, hub)
 
 	lim := middleware.NewRateLimitedAPI(float64(10), 5)
 	bh := middleware.NewBulkhead(1)

@@ -20,25 +20,28 @@ type HTTPConfig struct {
 	ShutdownTimeout   time.Duration
 	MaxHeaderBytes    int
 	Debug             bool
+
+	TLS TLSConfig
 }
 
-type TLS struct {
+type TLSConfig struct {
 	Enable   bool
 	Addr     string
 	CertFile string
 	KeyFile  string
 }
 
-type GRPC struct {
+type GRPCConfig struct {
 	Enable bool
 	Addr   string
 }
 
-type Streaming struct {
-	SSEHeartbeat     string
-	SubscriberBuffer string
-	WriteTimeout     string
+type StreamingConfig struct {
+	SSEHeartbeat     time.Duration
+	SubscriberBuffer int
+	WriteTimeout     time.Duration
 }
+
 type DBConfig struct {
 	DSN string
 }
@@ -136,6 +139,8 @@ type Config struct {
 	CORS            CORSConfig
 	Proxy           ProxyConfig
 	SecurityHeaders SecurityHeadersConfig
+	GRPC            GRPCConfig
+	Streaming       StreamingConfig
 }
 
 func defaultConfig() Config {
@@ -149,6 +154,12 @@ func defaultConfig() Config {
 			ShutdownTimeout:   10 * time.Second,
 			MaxHeaderBytes:    http.DefaultMaxHeaderBytes,
 			Debug:             false,
+			TLS: TLSConfig{
+				Enable:   false,
+				Addr:     ":8443",
+				CertFile: "",
+				KeyFile:  "",
+			},
 		},
 		DB: DBConfig{
 			DSN: "",
@@ -217,6 +228,15 @@ func defaultConfig() Config {
 				MaxAge: 0,
 			},
 		},
+		GRPC: GRPCConfig{
+			Enable: false,
+			Addr:   ":9090",
+		},
+		Streaming: StreamingConfig{
+			SSEHeartbeat:     15 * time.Second,
+			SubscriberBuffer: 16,
+			WriteTimeout:     10 * time.Second,
+		},
 	}
 }
 
@@ -226,6 +246,61 @@ func Load() (Config, error) {
 	var err error
 
 	cfg.HTTP.Addr, err = lookupStringNonEmpty("HTTP_ADDR", cfg.HTTP.Addr)
+	if err != nil {
+		return Config{}, err
+	}
+
+	cfg.HTTP.TLS.Enable, err = lookupBool("HTTP_TLS_ENABLE", cfg.HTTP.TLS.Enable)
+	if err != nil {
+		return Config{}, err
+	}
+
+	if cfg.HTTP.TLS.Enable {
+		cfg.HTTP.TLS.Addr, err = lookupStringNonEmpty("HTTP_TLS_ADDR", cfg.HTTP.TLS.Addr)
+		if err != nil {
+			return Config{}, err
+		}
+
+		cfg.HTTP.TLS.KeyFile, err = lookupStringNonEmpty("HTTP_TLS_KEY_FILE", cfg.HTTP.TLS.KeyFile)
+		if err != nil {
+			return Config{}, err
+		}
+
+		cfg.HTTP.TLS.CertFile, err = lookupStringNonEmpty("HTTP_TLS_CERT_FILE", cfg.HTTP.TLS.CertFile)
+		if err != nil {
+			return Config{}, err
+		}
+		if strings.TrimSpace(cfg.HTTP.TLS.CertFile) == "" {
+			return Config{}, fmt.Errorf("HTTP_TLS_ENABLE=true requires HTTP_TLS_CERT_FILE")
+		}
+		if strings.TrimSpace(cfg.HTTP.TLS.KeyFile) == "" {
+			return Config{}, fmt.Errorf("HTTP_TLS_ENABLE=true requires HTTP_TLS_KEY_FILE")
+		}
+	}
+
+	cfg.GRPC.Enable, err = lookupBool("GRPC_ENABLE", cfg.GRPC.Enable)
+	if err != nil {
+		return Config{}, err
+	}
+
+	if cfg.GRPC.Enable {
+		cfg.GRPC.Addr, err = lookupStringNonEmpty("GRPC_ADDR", cfg.GRPC.Addr)
+		if err != nil {
+			return Config{}, err
+		}
+	}
+
+	cfg.Streaming.WriteTimeout, err = lookupDurationPositive("STREAMING_WRITE_TIMEOUT", cfg.Streaming.WriteTimeout)
+	if err != nil {
+		return Config{}, err
+	}
+
+	cfg.Streaming.SubscriberBuffer, err = lookupIntPositive("STREAMING_SUBSCRIBER_BUFFER", cfg.Streaming.SubscriberBuffer)
+	if err != nil {
+		return Config{}, err
+	}
+
+	cfg.Streaming.SSEHeartbeat, err = lookupDurationPositive("STREAMING_SSE_HEARTBEAT", cfg.Streaming.SSEHeartbeat)
 	if err != nil {
 		return Config{}, err
 	}

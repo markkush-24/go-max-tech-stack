@@ -10,6 +10,7 @@ import (
 	"pet-study/internal/metrics"
 	"pet-study/internal/queue"
 	"pet-study/internal/service"
+	"pet-study/internal/stream"
 	"sync"
 	"time"
 )
@@ -25,6 +26,7 @@ type WorkerPool struct {
 	jobService   *service.JobService
 	userService  *service.UserService
 	jobsObserver metrics.JobsObserver
+	eventHub     *stream.Hub
 
 	mu      sync.RWMutex
 	running bool
@@ -39,12 +41,14 @@ func NewWorkerPool(
 	jobSvc *service.JobService,
 	userSvc *service.UserService,
 	metrics metrics.JobsObserver,
+	eventHub *stream.Hub,
 ) *WorkerPool {
 	return &WorkerPool{
 		queue:        q,
 		jobService:   jobSvc,
 		userService:  userSvc,
 		jobsObserver: metrics,
+		eventHub:     eventHub,
 	}
 }
 
@@ -137,6 +141,11 @@ func (wp *WorkerPool) workerLoop() {
 				}
 			}
 			wp.jobsObserver.IncRunning()
+			wp.eventHub.Publish(item.JobID, stream.Event{
+				Type:  string(entity.JobRunning),
+				JobID: item.JobID,
+				At:    time.Now(),
+			})
 			start := time.Now()
 
 			user, userErr := wp.userService.CreateUser(wp.ctx, &item.Payload)
@@ -150,11 +159,18 @@ func (wp *WorkerPool) workerLoop() {
 				continue
 			}
 
-			if err := wp.jobService.SetSucceeded(wp.ctx, item.JobID, entity.JobResult{UserID: int64(user.ID)}); err != nil {
+			res := entity.JobResult{UserID: int64(user.ID)}
+			if err := wp.jobService.SetSucceeded(wp.ctx, item.JobID, res); err != nil {
 				logger.Error("failed to mark job as succeeded", "job_id", item.JobID, "err", err)
 				continue
 			}
 			wp.jobsObserver.IncSucceeded()
+			wp.eventHub.Publish(item.JobID, stream.Event{
+				Type:  string(entity.JobSucceeded),
+				JobID: item.JobID,
+				At:    time.Now(),
+				Data:  res,
+			})
 			wp.jobsObserver.ObserveProcessing(time.Since(start))
 		}
 	}
@@ -175,9 +191,19 @@ func (wp *WorkerPool) failActiveOnShutdown(ctx context.Context) error {
 }
 
 func (wp *WorkerPool) markJobFailed(id int64, problem entity.JobProblem) error {
+	if err := wp.jobService.SetFailed(context.Background(), id, problem); err != nil {
+		return err
+	}
 	// После отмены worker lifecycle-context нам всё ещё важно записать
 	// terminal state job, поэтому здесь используется независимый context.
-	return wp.jobService.SetFailed(context.Background(), id, problem)
+
+	wp.eventHub.Publish(id, stream.Event{
+		Type:  string(entity.JobFailed),
+		JobID: id,
+		At:    time.Now(),
+		Data:  problem,
+	})
+	return nil
 }
 
 func ToJobProblem(err error) entity.JobProblem {

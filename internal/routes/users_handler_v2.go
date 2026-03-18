@@ -10,6 +10,8 @@ import (
 	"pet-study/internal/queue"
 	"pet-study/internal/security"
 	"pet-study/internal/service"
+	"pet-study/internal/stream"
+	"time"
 )
 
 type UsersV2Handler struct {
@@ -17,6 +19,7 @@ type UsersV2Handler struct {
 	jobService   *service.JobService
 	workerQueue  *queue.Queue
 	jobsObserver metrics.JobsObserver
+	eventHub     *stream.Hub
 }
 
 func NewUserV2Handler(
@@ -24,12 +27,14 @@ func NewUserV2Handler(
 	jobService *service.JobService,
 	workerQueue *queue.Queue,
 	metrics metrics.JobsObserver,
+	eventHub *stream.Hub,
 ) *UsersV2Handler {
 	return &UsersV2Handler{
 		userService:  userService,
 		jobService:   jobService,
 		workerQueue:  workerQueue,
-		jobsObserver: metrics}
+		jobsObserver: metrics,
+		eventHub:     eventHub}
 }
 
 func (h *UsersV2Handler) Create(w http.ResponseWriter, r *http.Request) error {
@@ -65,6 +70,12 @@ func (h *UsersV2Handler) Create(w http.ResponseWriter, r *http.Request) error {
 			return enqueueErr
 		}
 		h.jobsObserver.IncQueued()
+
+		h.eventHub.Publish(job.ID, stream.Event{
+			Type:  string(entity.JobQueued),
+			JobID: job.ID,
+			At:    time.Now(),
+		})
 
 		w.Header().Set("Location", fmt.Sprintf("/api/v1/jobs/%d", job.ID))
 		return httputils.WriteJSON(w, http.StatusAccepted, job)

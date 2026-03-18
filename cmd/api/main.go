@@ -14,6 +14,7 @@ import (
 	"pet-study/internal/queue"
 	"pet-study/internal/security"
 	"pet-study/internal/store/jobrepo"
+	"pet-study/internal/stream"
 	"syscall"
 
 	"pet-study/internal/api"
@@ -56,6 +57,8 @@ func run() error {
 	// Metrics registry
 	m := metrics.DefaultHTTP()
 
+	eventHub := stream.NewHub(cfg.Streaming.SubscriberBuffer)
+
 	// Dependencies
 	userRepository := userrepo.NewMemoryUserRepository()
 	jobRepository := jobrepo.NewMemoryJobRepository()
@@ -64,7 +67,7 @@ func run() error {
 
 	//Async
 	q := queue.New(cfg.Pool.QueueSize)
-	pool := workerpool.NewWorkerPool(q, jobService, userService, m)
+	pool := workerpool.NewWorkerPool(q, jobService, userService, m, eventHub)
 	poolErr := pool.Start(ctx, cfg.Pool.Workers)
 	if poolErr != nil {
 		return poolErr
@@ -94,8 +97,8 @@ func run() error {
 	bulkhead := middleware.NewBulkhead(cfg.Bulkhead.MaxParallel)
 
 	// Routers
-	userHandler := routes.NewUserHandler(userService, jobService, q, m)
-	userHandlerV2 := routes.NewUserV2Handler(userService, jobService, q, m)
+	userHandler := routes.NewUserHandler(userService, jobService, q, m, eventHub)
+	userHandlerV2 := routes.NewUserV2Handler(userService, jobService, q, m, eventHub)
 
 	jobsHandler := routes.NewJobHandler(jobService)
 

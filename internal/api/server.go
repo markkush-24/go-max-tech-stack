@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"log/slog"
 	"net"
@@ -10,6 +11,8 @@ import (
 	"pet-study/internal/health"
 	"pet-study/internal/queue"
 	"pet-study/internal/workerpool"
+	"sync"
+	"time"
 )
 
 type APIServer struct {
@@ -38,38 +41,71 @@ func NewAPIServer(
 
 func (s *APIServer) Run(ctx context.Context) error {
 	logger := slog.Default().With("component", "api_server")
-	srv := &http.Server{
-		Addr:              s.config.HTTP.Addr,
-		Handler:           s.router,
-		ReadHeaderTimeout: s.config.HTTP.ReadHeaderTimeout,
-		ReadTimeout:       s.config.HTTP.ReadTimeout,
-		WriteTimeout:      s.config.HTTP.WriteTimeout,
-		IdleTimeout:       s.config.HTTP.IdleTimeout,
-		MaxHeaderBytes:    s.config.HTTP.MaxHeaderBytes,
-	}
+	srv := s.newHTTPServer(s.config.HTTP.Addr, nil)
 
 	ln, err := net.Listen("tcp", s.config.HTTP.Addr)
 	if err != nil {
 		return err
 	}
 
-	errCh := make(chan error, 1)
+	var httpsSrv *http.Server
+	var lnHTTPS net.Listener
+	if s.config.HTTP.TLS.Enable {
+		cert, err := tls.LoadX509KeyPair(s.config.HTTP.TLS.CertFile, s.config.HTTP.TLS.KeyFile)
+		if err != nil {
+			_ = ln.Close()
+			return err
+		}
 
+		httpsSrv = s.newHTTPServer(
+			s.config.HTTP.TLS.Addr,
+			&tls.Config{
+				Certificates: []tls.Certificate{cert},
+			},
+		)
+
+		lnHTTPS, err = net.Listen("tcp", s.config.HTTP.TLS.Addr)
+		if err != nil {
+			_ = ln.Close()
+			return err
+		}
+	}
+
+	if httpsSrv == nil {
+		logger.Info("https server disabled")
+	}
+
+	errCh := make(chan error, 2)
+	var wg sync.WaitGroup
+
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
+
 		logger.Info("http server listening", "addr", ln.Addr().String())
 
 		if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
 			errCh <- err
 		}
-		close(errCh)
 	}()
+
+	if httpsSrv != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			logger.Info("https server listening", "addr", lnHTTPS.Addr().String())
+
+			if err := httpsSrv.ServeTLS(lnHTTPS, "", ""); err != nil && err != http.ErrServerClosed {
+				errCh <- err
+			}
+		}()
+	}
 
 	s.readiness.SetReady()
 	logger.Info("readiness changed", "ready", true)
 
 	defer func() {
-		s.queue.StopAccepting()
-
 		stopCtx, cancel := context.WithTimeout(context.Background(), s.config.HTTP.ShutdownTimeout)
 		defer cancel()
 
@@ -84,40 +120,84 @@ func (s *APIServer) Run(ctx context.Context) error {
 		s.readiness.SetNotReady()
 		logger.Info("readiness changed", "ready", false)
 
-		sdCtx, cancel := context.WithTimeout(context.Background(), s.config.HTTP.ShutdownTimeout)
-		defer cancel()
-
 		s.queue.StopAccepting()
 
-		if err := srv.Shutdown(sdCtx); err != nil {
-			if errors.Is(err, context.DeadlineExceeded) {
-				logger.Warn("shutdown timeout, forcing close", "timeout", s.config.HTTP.ShutdownTimeout.String())
+		var shutdownErrs []error
 
-				// fallback: жёстко закрываем
-				if closeErr := srv.Close(); closeErr != nil {
-					return errors.Join(err, closeErr)
-				}
-
-				<-errCh
-				return nil
+		if httpsSrv != nil {
+			if err := shutdownServer(logger, "https", httpsSrv, s.config.HTTP.ShutdownTimeout); err != nil {
+				shutdownErrs = append(shutdownErrs, err)
 			}
-
-			_ = srv.Close()
-			<-errCh
-
-			return err
 		}
 
-		<-errCh
+		if err := shutdownServer(logger, "http", srv, s.config.HTTP.ShutdownTimeout); err != nil {
+			shutdownErrs = append(shutdownErrs, err)
+		}
+
+		wg.Wait()
+
+		if len(shutdownErrs) > 0 {
+			return errors.Join(shutdownErrs...)
+		}
+
 		return nil
 
 	case err := <-errCh:
-		if err == nil {
-			logger.Info("server stopped")
+		s.readiness.SetNotReady()
+		logger.Info("readiness changed", "ready", false)
+
+		s.queue.StopAccepting()
+
+		_ = srv.Close()
+		if httpsSrv != nil {
+			_ = httpsSrv.Close()
+		}
+		wg.Wait()
+
+		logger.Error("server error", "err", err)
+		return err
+	}
+}
+
+func shutdownServer(logger *slog.Logger, name string, srv *http.Server, timeout time.Duration) error {
+	if srv == nil {
+		return nil
+	}
+
+	sdCtx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	if err := srv.Shutdown(sdCtx); err != nil {
+		if errors.Is(err, http.ErrServerClosed) {
 			return nil
 		}
 
-		logger.Error("http server error", "err", err)
+		if errors.Is(err, context.DeadlineExceeded) {
+			logger.Warn("shutdown timeout, forcing close", "server", name, "timeout", timeout.String())
+			if closeErr := srv.Close(); closeErr != nil && !errors.Is(closeErr, http.ErrServerClosed) {
+				return errors.Join(err, closeErr)
+			}
+			return nil
+		}
+
+		if closeErr := srv.Close(); closeErr != nil && !errors.Is(closeErr, http.ErrServerClosed) {
+			return errors.Join(err, closeErr)
+		}
 		return err
+	}
+
+	return nil
+}
+
+func (s *APIServer) newHTTPServer(addr string, tlsCfg *tls.Config) *http.Server {
+	return &http.Server{
+		Addr:              addr,
+		Handler:           s.router,
+		ReadHeaderTimeout: s.config.HTTP.ReadHeaderTimeout,
+		ReadTimeout:       s.config.HTTP.ReadTimeout,
+		WriteTimeout:      s.config.HTTP.WriteTimeout,
+		IdleTimeout:       s.config.HTTP.IdleTimeout,
+		MaxHeaderBytes:    s.config.HTTP.MaxHeaderBytes,
+		TLSConfig:         tlsCfg,
 	}
 }

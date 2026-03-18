@@ -17,6 +17,7 @@ import (
 	"pet-study/internal/service"
 	"pet-study/internal/store/jobrepo"
 	"pet-study/internal/store/userrepo"
+	"pet-study/internal/stream"
 	"pet-study/internal/testkit"
 	"testing"
 	"time"
@@ -75,9 +76,9 @@ func newEnv(t *testing.T) (*env, *service.UserService) {
 
 	m := metrics.DefaultHTTP()
 	q := queue.New(10)
-
-	v1 := routes.NewUserHandler(userSvc, jobSvc, q, m)
-	v2 := routes.NewUserV2Handler(userSvc, jobSvc, q, m)
+	hub := stream.NewHub(16)
+	v1 := routes.NewUserHandler(userSvc, jobSvc, q, m, hub)
+	v2 := routes.NewUserV2Handler(userSvc, jobSvc, q, m, hub)
 	jh := routes.NewJobHandler(jobSvc)
 
 	// profile endpoint: подключаем реальный handler с stub client

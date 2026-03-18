@@ -1,215 +1,245 @@
-# Step 7 — Спека по протоколам и стримингу
+# Step 7 — Protocol and Streaming Spec
 
-## Статус
+## Status
 
-Черновик для backlog-пункта **S7-B1**.
+Draft for backlog item **S7-B1**.
 
-## Цель
+## Goal
 
-Расширить существующий сервис `pet-study` следующими возможностями:
+Extend the existing `pet-study` service with the following capabilities:
 
-- опциональный HTTPS listener для существующего HTTP API;
-- отдельный gRPC server как внутренний транспорт;
-- SSE для live-событий по job;
-- Range support для частичной загрузки ресурса;
+- an optional HTTPS listener for the existing HTTP API;
+- a separate gRPC server as an internal transport;
+- SSE for live job events;
+- Range support for partial resource downloads;
 
-при этом **не ломая инварианты Step 4–6**:
+while **not breaking the Step 4–6 invariants**:
 
-- нельзя обходить `http.ServeMux` так, чтобы ломались `r.Pattern` / `PathValue`;
-- семантика `request-id` должна оставаться консистентной;
-- CORS остаётся только на API subtree, preflight short-circuit должен происходить до auth;
-- `/debug/*` остаётся debug-only и исключённым из обычных HTTP metrics;
-- обычные API timeout’ы и поведение Step 4–6 не должны быть случайно сломаны.
+- `http.ServeMux` must not be bypassed in a way that breaks `r.Pattern` / `PathValue`;
+- `request-id` semantics must remain consistent;
+- CORS stays limited to the API subtree, and preflight short-circuit must happen before auth;
+- `/debug/*` remains debug-only and excluded from normal HTTP metrics;
+- normal API timeouts and Step 4–6 behavior must not be accidentally broken.
 
-## Транспортная схема
+## Transport layout
 
-Сервис будет поддерживать три типа listener’ов.
+The service will support three listener types.
 
 ### 1. HTTP
 
-Существующий REST API продолжает работать в обычном HTTP-режиме для local/dev сценариев.
+The existing REST API continues to run in normal HTTP mode for local/dev scenarios.
 
-Пример:
+Example:
 - `HTTP_ADDR=:8080`
 
 ### 2. HTTPS
 
-Опциональный второй listener с **тем же handler chain** и **теми же маршрутами**, что и у HTTP, но поверх TLS.
+An optional second listener with the **same handler chain** and **the same routes** as HTTP, but running over TLS.
 
-Пример:
-- `HTTPS_ADDR=:8443`
+Example:
+- `HTTP_TLS_ADDR=:8443`
 
-Примечания:
-- HTTPS **не** вводит отдельные endpoint’ы; это тот же API, но поверх TLS.
-- В обычном TLS server предъявляет свой сертификат клиенту.
-- На HTTPS listener ожидается нормальная работа HTTP/2 через стандартную поддержку Go `net/http` для TLS/HTTP2.
+Notes:
+- HTTPS does **not** introduce separate endpoints; it serves the same API over TLS.
+- In normal TLS mode, the server presents its certificate to the client.
+- On the HTTPS listener, HTTP/2 is expected to work through Go `net/http` standard TLS/ALPN support.
 
 ### 3. gRPC
 
-Опциональный отдельный gRPC server на собственном адресе.
+An optional separate gRPC server on its own address.
 
-Пример:
+Example:
 - `GRPC_ADDR=:9090`
 
-Примечания:
-- gRPC — это отдельный server, а не замена HTTP API.
-- Он использует тот же domain/service слой, что и HTTP handlers.
-- В рамках Step 7 он рассматривается как внутренний транспортный интерфейс.
+Notes:
+- gRPC is a separate server, not a replacement for the HTTP API.
+- It uses the same domain/service layer as the HTTP handlers.
+- In Step 7, it is treated as an internal transport interface.
 
-## Зафиксированный scope Step 7
+## Locked scope for Step 7
 
-### Обязательный streaming-механизм
+### Mandatory streaming mechanism
 
-**SSE** на endpoint’е:
+**SSE** on the endpoint:
 
 `GET /api/v1/jobs/{id}/events`
 
-Назначение:
-- стримить клиенту события жизненного цикла job:
+Purpose:
+- stream job lifecycle events to the client:
     - `queued`
     - `running`
-    - `progress` (опционально)
+    - `progress` (optional)
     - `succeeded`
     - `failed`
 
-SSE выбран потому, что проекту нужен **one-way поток от сервера к клиенту** для async jobs.
+SSE is chosen because the project needs a **one-way server-to-client stream** for async jobs.
 
-### gRPC сервис
+### gRPC service
 
-Выбран сервис:
+Chosen service:
 
 **JobsService**
 
-Начальный scope:
-- `GetJob(id)` — обязательно
-- `WatchJob(id)` — опционально, если останется время
+Initial scope:
+- `GetJob(id)` — required
+- `WatchJob(id)` — optional, if time remains
 
-Причина выбора:
-- jobs уже существуют в проекте;
-- уже есть async processing и статусы job;
-- SSE и возможный gRPC streaming естественно ложатся на job domain.
+Reason for this choice:
+- jobs already exist in the project;
+- async processing and job status transitions already exist;
+- SSE and possible gRPC streaming both fit the job domain naturally.
 
-### Вторичная протокольная часть
+### Secondary protocol feature
 
-Выбран механизм:
+Chosen mechanism:
 
 **Range support**
 
-Планируемый endpoint:
+Planned endpoint:
 - `GET /api/v1/users/{id}/export`
 
-Назначение:
-- поддержка частичной загрузки большого экспортируемого ресурса.
+Purpose:
+- support partial download of a large exported resource.
 
-Направление реализации:
-- предпочтительно использовать `http.ServeContent`, так как он корректно обрабатывает Range requests и связанные conditional headers.
+Implementation direction:
+- prefer `http.ServeContent`, because it correctly handles Range requests and related conditional headers.
 
-## Зафиксированные политики
+## Job ownership model
 
-## Политика для SSE
+Step 7 introduces ownership for async jobs.
+
+When a job is created, the service stores the owner identity
+(for example, `OwnerUserID`) taken from the authenticated principal.
+
+Owner/admin authorization for job-based endpoints relies on this field.
+
+At minimum, this applies to:
+- `GET /api/v1/jobs/{id}/events`
+
+For consistency, Step 7 also moves access to:
+- `GET /api/v1/jobs/{id}`
+
+to the same rule:
+- the job owner;
+- or an admin.
+
+## Locked policies
+
+## SSE policy
 
 ### Auth
 
-Доступ к `GET /api/v1/jobs/{id}/events`:
-- владелец job;
-- либо admin.
+Access to `GET /api/v1/jobs/{id}/events`:
+- the job owner;
+- or an admin.
 
-Должна использоваться существующая authn/authz модель из Step 6.
+The existing Step 6 authn/authz model must be reused.
 
-### Формат стрима
+### Stream format
 
-Заголовки:
+Headers:
 - `Content-Type: text/event-stream`
 - `Cache-Control: no-cache`
 
-Опционально:
-- `Connection: keep-alive` для совместимости с HTTP/1.1
+Optional:
+- `Connection: keep-alive` for HTTP/1.1 compatibility
 
 ### Flush
 
-Handler обязан проверять поддержку `http.Flusher`, так как корректность стриминга зависит от явного `Flush()` после записи события и heartbeat.
+The handler must verify `http.Flusher` support, because correct streaming depends on explicit `Flush()` after each event and heartbeat.
 
 ### Heartbeat
 
-Фиксированный heartbeat interval:
+Fixed heartbeat interval:
 - `15s`
 
-Формат heartbeat:
-- SSE comment frame, например `: ping`
+Heartbeat format:
+- SSE comment frame, for example `: ping`
 
-Причина:
-- поддержание long-lived соединения живым для proxy/intermediary.
+Reason:
+- keep the long-lived connection active across proxies/intermediaries.
 
 ### Cancellation
 
-Цикл SSE должен завершаться по:
+The SSE loop must terminate on:
 - `r.Context().Done()`
-- отмене подписки
-- shutdown event hub
+- subscription cancellation
+- event hub shutdown
 
 ### Backpressure
 
-Политика на подписчика:
+Subscriber policy:
 - bounded subscriber buffer;
-- начальный размер: `16`
+- initial size: `16`
 
-Политика публикации:
-- publish non-blocking;
-- если буфер подписчика переполнен, событие дропается;
-- инкрементируется `sse_drops_total`;
-- worker execution не должен блокироваться из-за медленного клиента.
+Publish policy:
+- publish is non-blocking;
+- if a subscriber buffer is full, the event is dropped;
+- `sse_drops_total` is incremented;
+- worker execution must not block because of a slow client.
 
-Начальная политика закрытия:
-- в первой реализации не закрывать соединение автоматически;
-- медленный подписчик может оставаться подключённым, но пропускать события под нагрузкой.
+Initial connection-closing policy:
+- in the first implementation, do not close the connection automatically;
+- a slow subscriber may remain connected but miss events under load.
 
-Это осознанный tradeoff: защита выполнения job важнее, чем гарантия доставки каждого промежуточного события.
+This is an intentional tradeoff: protecting job execution is more important than guaranteeing delivery of every intermediate event.
+
+### Streaming write timeout
+
+`STREAMING_WRITE_TIMEOUT` defines the limit for a single write/flush attempt in a streaming handler.
+
+It must not change the global timeout behavior of the normal HTTP API.
+
+If writing an event or heartbeat to the stream does not complete within this timeout,
+the connection is treated as stalled and the handler terminates the stream.
 
 ### Metrics
 
-SSE endpoint’ы исключаются из обычных HTTP latency metrics.
+SSE endpoints are excluded from normal HTTP latency metrics.
 
-Вместо этого вводятся отдельные streaming metrics:
+This exclusion must be implemented **without bypassing `http.ServeMux`**, keeping `r.Pattern` as the canonical route identifier.
+
+Instead, separate streaming metrics are introduced:
 - `sse_subscribers`
 - `sse_events_total`
 - `sse_drops_total`
 
-Причина:
-- long-lived stream искажает обычные latency metrics.
+Reason:
+- a long-lived stream distorts normal latency metrics.
 
-## Политика для Range
+## Range policy
 
 ### Auth
 
-Доступ к `GET /api/v1/users/{id}/export`:
-- сам пользователь;
-- либо admin.
+Access to `GET /api/v1/users/{id}/export`:
+- the user themselves;
+- or an admin.
 
-### Поведение ответа
+### Response behavior
 
-Endpoint должен поддерживать:
-- полный ответ целиком;
-- частичный ответ с `206 Partial Content`;
-- `Content-Range`, когда используется Range.
+The endpoint must support:
+- a full response;
+- a partial response with `206 Partial Content`;
+- `Content-Range` when Range is used.
 
-### Направление реализации
+### Implementation direction
 
-Предпочтительно:
+Preferred:
 - `http.ServeContent`
 
-Причина:
-- он корректно обрабатывает Range requests и conditional headers.
+Reason:
+- it correctly handles Range requests and conditional headers.
 
-## Политика для gRPC
+## gRPC policy
 
-### Граница сервиса
+### Service boundary
 
-gRPC handlers должны вызывать существующий service/repository слой.
-Бизнес-логика не должна дублироваться.
+gRPC handlers must call the existing service/repository layer.
+Business logic must not be duplicated.
 
-### Маппинг ошибок
+### Error mapping
 
-Service/domain ошибки должны маппиться в gRPC status codes:
+Service/domain errors must map to gRPC status codes:
 
 - not found → `NotFound`
 - unauthenticated → `Unauthenticated`
@@ -218,56 +248,58 @@ Service/domain ошибки должны маппиться в gRPC status codes
 - transient unavailable → `Unavailable`
 - unexpected internal error → `Internal`
 
-### Deadlines и cancellation
+### Deadlines and cancellation
 
-gRPC handlers обязаны уважать входящий `context.Context`, включая deadlines и cancellation.
+gRPC handlers must respect the incoming `context.Context`, including deadlines and cancellation.
 
 ### Request ID
 
-Unary interceptor должен:
-- извлекать request-id из metadata, если он передан;
-- иначе генерировать новый доверенный request-id;
-- последовательно attach/log’ировать его для gRPC requests.
+A unary interceptor must ensure that a trusted request-id is always present in the gRPC request context and logs.
 
-Это gRPC-аналог существующей HTTP-семантики `request-id`.
+For internal trusted callers, request-id propagation through gRPC metadata is allowed.
 
-## Problem details и текущая HTTP error model
+If request-id is missing, malformed, or the caller is not treated as trusted,
+the interceptor generates a new trusted request-id.
 
-Существующая HTTP error handling модель остаётся без изменений:
+This is the gRPC analogue of the existing HTTP `request-id` semantics.
 
-- HTTP handlers продолжают использовать централизованный Problem+JSON mapping;
-- `request_id` по-прежнему включается как extension member в error response.
+## Problem details and the current HTTP error model
 
-Step 7 **не** заменяет HTTP Problem+JSON каким-либо новым форматом.
+The existing HTTP error handling model remains unchanged:
 
-## Ожидания по shutdown и readiness
+- HTTP handlers continue to use centralized Problem+JSON mapping;
+- `request_id` remains included as an extension member in error responses.
 
-Реализация Step 7 должна расширить lifecycle management для:
+Step 7 does **not** replace HTTP Problem+JSON with any new format.
 
-- shutdown HTTP server;
-- shutdown HTTPS server, если он включён;
-- graceful shutdown gRPC server;
-- shutdown event hub без `send on closed channel`.
+## Shutdown and readiness expectations
 
-`/readyz` должен учитывать состояние:
-- workerpool;
-- gRPC server, если включён;
-- streaming hub, если включён.
+Step 7 must extend lifecycle management for:
 
-## Что не входит в Step 7
+- shutdown of the HTTP server;
+- shutdown of the HTTPS server, if enabled;
+- graceful shutdown of the gRPC server;
+- shutdown of the event hub without `send on closed channel`.
 
-Вне scope этого шага:
+`/readyz` must account for:
+- workerpool state;
+- gRPC server state, if enabled;
+- streaming hub state, if enabled.
 
-- замена существующего REST API на gRPC;
-- глобальный REST↔gRPC gateway для всего сервиса;
-- выбор WebSocket как вторичной протокольной части;
-- изменения Step 4–6 auth, CORS, metrics, queue, retry или request-id semantics вне минимально нужных интеграций.
+## What is out of scope for Step 7
 
-## Планируемая конфигурация
+Outside the scope of this step:
+
+- replacing the existing REST API with gRPC;
+- a global REST↔gRPC gateway for the whole service;
+- choosing WebSocket as the secondary protocol feature;
+- changes to Step 4–6 auth, CORS, metrics, queue, retry, or request-id semantics beyond the minimum integrations required for Step 7.
+
+## Planned configuration
 
 ### HTTP / TLS
 - `HTTP_ADDR`
-- `HTTPS_ADDR`
+- `HTTP_TLS_ADDR`
 - `HTTP_TLS_ENABLE`
 - `HTTP_TLS_CERT_FILE`
 - `HTTP_TLS_KEY_FILE`
@@ -279,35 +311,37 @@ Step 7 **не** заменяет HTTP Problem+JSON каким-либо новы�
 ### Streaming
 - `STREAMING_SSE_HEARTBEAT`
 - `STREAMING_SUBSCRIBER_BUFFER`
+- `STREAMING_WRITE_TIMEOUT`
 
-Правила валидации:
-- некорректный или неполный TLS config должен валить startup fast-fail;
-- включённый gRPC без адреса — ошибка;
-- невалидные heartbeat/buffer values — ошибка.
+Validation rules:
+- invalid or incomplete TLS config must fail startup fast;
+- enabled gRPC without an address is an error;
+- invalid heartbeat/buffer/write-timeout values are an error.
 
-## Порядок реализации
+## Implementation order
 
-После S7-B1 реализация идёт в таком порядке:
+After S7-B1, implementation proceeds in this order:
 
-1. config additions для TLS, gRPC, streaming;
+1. config additions for TLS, gRPC, and streaming;
 2. optional HTTPS listener;
 3. event hub;
-4. интеграция workerpool → event hub publish;
+4. workerpool → event hub publish integration;
 5. SSE endpoint;
-6. изоляция SSE metrics;
+6. SSE metrics isolation;
 7. proto + gRPC server;
 8. Range endpoint;
 9. shutdown/readiness integration;
 10. tests;
 11. README polish.
 
-## Критерии готовности S7-B1
+## S7-B1 completion criteria
 
-S7-B1 считается завершённым, когда в этой спецификации явно зафиксированы решения:
+S7-B1 is complete when this specification explicitly locks the following decisions:
 
-- HTTP остаётся;
-- HTTPS опционален и обслуживает тот же handler chain;
-- gRPC поднимается отдельно и использует `JobsService`;
-- SSE — обязательный streaming-механизм;
-- Range — вторичная протокольная часть;
-- auth, heartbeat, backpressure, metrics и shutdown expectations явно зафиксированы.
+- HTTP remains available;
+- HTTPS is optional and serves the same handler chain;
+- gRPC runs separately and uses `JobsService`;
+- SSE is the mandatory streaming mechanism;
+- Range is the secondary protocol feature;
+- job ownership is explicitly introduced for owner/admin checks;
+- auth, heartbeat, backpressure, request-id, metrics, write-timeout, and shutdown expectations are explicitly locked.
