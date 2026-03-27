@@ -14,6 +14,7 @@ var (
 	ErrJSONTypeMismatch     = errors.New("json: type mismatch")
 	ErrJSONDecodeFailure    = errors.New("json: decode failure")
 	ErrUnsupportedMediaType = errors.New("unsupported media type")
+	ErrStreamingUnsupported = errors.New("streaming is not supported")
 )
 
 // JSONRequestError — “обёртка” вокруг причин; даёт и sentinel, и оригинальную причину.

@@ -126,6 +126,12 @@ func MapError(r *http.Request, err error) MappedProblem {
 		}
 	}
 
+	if errors.Is(err, ErrStreamingUnsupported) {
+		return MappedProblem{
+			Problem: Problem{Status: http.StatusInternalServerError, Detail: "streaming is not supported"},
+		}
+	}
+
 	// 4) JSON decode (400) — твой ParseJSON возвращает JSONRequestError с Kind=ErrJSON...
 	// Детали (field) берём через errors.As в *JSONRequestError.
 	var jre *JSONRequestError

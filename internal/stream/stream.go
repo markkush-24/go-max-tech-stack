@@ -1,7 +1,10 @@
 package stream
 
 import (
+	"encoding/json"
 	"expvar"
+	"fmt"
+	"net/http"
 	"sync"
 	"time"
 )
@@ -142,4 +145,29 @@ func (h *Hub) DropsTotal() int64 {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return h.dropsTotal
+}
+
+// WriteSSE writes a single event to the response writer
+func WriteSSE(w http.ResponseWriter, event Event) error {
+	// Write event type if specified
+	if event.Type != "" {
+		_, err := fmt.Fprintf(w, "event: %s\n", event.Type)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Marshal data to JSON
+	data, err := json.Marshal(event.Data)
+	if err != nil {
+		return err
+	}
+
+	// Write data and blank line to end event
+	_, err = fmt.Fprintf(w, "data: %s\n\n", data)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }

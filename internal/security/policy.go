@@ -80,8 +80,11 @@ var DefaultPolicy = []RouteRule{
 	{Pattern: "/api/v1/users/{id}", Methods: []string{"GET"}, Access: AccessAuthenticated, ResourceConstraint: ResourceSelfOnly},
 	{Pattern: "/api/v1/users/{id}/profile", Methods: []string{"GET"}, Access: AccessAuthenticated, ResourceConstraint: ResourceSelfOnly},
 
+	// SSE Stream
+	{Pattern: "/api/v1/jobs/{id}/events", Methods: []string{"GET"}, Access: AccessAuthenticated},
+
 	// API v1 jobs item (admin only; ownership jobs не моделируется в Step 6)
-	{Pattern: "/api/v1/jobs/{id}", Methods: []string{"GET"}, Access: AccessAdminOnly, Notes: "ownership не моделируется в Step 6"},
+	{Pattern: "/api/v1/jobs/{id}", Methods: []string{"GET"}, Access: AccessAdminOnly},
 
 	// API v2 users collection
 	{Pattern: "GET /api/v2/users", Methods: []string{"GET"}, Access: AccessAdminOnly},
@@ -91,4 +94,8 @@ var DefaultPolicy = []RouteRule{
 
 func CanReadUser(p Principal, targetID int64) bool {
 	return p.Role == RoleAdmin || p.UserID == targetID
+}
+
+func CanReadJob(p Principal, ownerID int64) bool {
+	return p.Role == RoleAdmin || p.UserID == ownerID
 }

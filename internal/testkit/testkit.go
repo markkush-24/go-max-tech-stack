@@ -159,7 +159,8 @@ func newApp(t *testing.T, opts ...Option) (*App, options) {
 	hub := stream.NewHub(16)
 	v1 := routes.NewUserHandler(userSvc, jobSvc, q, m, hub)
 	v2 := routes.NewUserV2Handler(userSvc, jobSvc, q, m, hub)
-	jh := routes.NewJobHandler(jobSvc)
+	eventHub := stream.NewHub(16)
+	jh := routes.NewJobHandler(jobSvc, eventHub, 5*time.Second, 5*time.Second)
 
 	app := &App{
 		UserRepo: userRepo,

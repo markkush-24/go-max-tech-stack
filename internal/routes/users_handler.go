@@ -58,7 +58,12 @@ func (h *UsersHandler) Create(w http.ResponseWriter, r *http.Request) error {
 			}
 		}
 
-		job := entity.Job{Status: entity.JobQueued}
+		principal, ok := security.FromContext(r.Context())
+		if !ok {
+			return security.NewUnauthorized(security.AuthNMissing, nil)
+		}
+
+		job := entity.Job{Status: entity.JobQueued, OwnerUserID: principal.UserID}
 		if err := h.jobService.Save(r.Context(), &job); err != nil {
 			return err
 		}

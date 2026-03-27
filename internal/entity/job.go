@@ -13,8 +13,9 @@ type Job struct {
 	ID     int64     `json:"id"`
 	Status JobStatus `json:"status"`
 
-	Result *JobResult  `json:"result,omitempty"`
-	Error  *JobProblem `json:"error,omitempty"`
+	Result      *JobResult  `json:"result,omitempty"`
+	Error       *JobProblem `json:"error,omitempty"`
+	OwnerUserID int64       `json:"-"`
 }
 
 type JobResult struct {

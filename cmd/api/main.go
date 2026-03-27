@@ -100,7 +100,7 @@ func run() error {
 	userHandler := routes.NewUserHandler(userService, jobService, q, m, eventHub)
 	userHandlerV2 := routes.NewUserV2Handler(userService, jobService, q, m, eventHub)
 
-	jobsHandler := routes.NewJobHandler(jobService)
+	jobsHandler := routes.NewJobHandler(jobService, eventHub, cfg.Streaming.SSEHeartbeat, cfg.Streaming.WriteTimeout)
 
 	keys := make([]security.HMACKey, 0, len(cfg.Auth.JWT.Keys))
 	for _, k := range cfg.Auth.JWT.Keys {

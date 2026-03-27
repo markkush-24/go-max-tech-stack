@@ -54,6 +54,22 @@ func NewRouter(
 		return &httputils.MethodNotAllowedError{Allow: "GET"}
 	}))
 
+	publishEvents := func(w http.ResponseWriter, r *http.Request) error {
+
+		idStr := r.PathValue("id")
+		id, ok := httputils.ParsePositiveInt(idStr)
+		if !ok {
+			return &httputils.BadRequestError{Detail: mustBePositive}
+		}
+		return jobs.Events(w, r, id)
+	}
+	mux.Handle("/api/v1/jobs/{id}/events", wrap(func(w http.ResponseWriter, r *http.Request) error {
+		if r.Method == http.MethodGet {
+			return publishEvents(w, r)
+		}
+		return &httputils.MethodNotAllowedError{Allow: "GET"}
+	}))
+
 	// v1 users item
 	getUserByID := func(w http.ResponseWriter, r *http.Request) error {
 		idStr := r.PathValue("id")

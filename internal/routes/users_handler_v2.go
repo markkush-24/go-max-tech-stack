@@ -56,8 +56,13 @@ func (h *UsersV2Handler) Create(w http.ResponseWriter, r *http.Request) error {
 			}
 		}
 
+		principal, ok := security.FromContext(r.Context())
+		if !ok {
+			return security.NewUnauthorized(security.AuthNMissing, nil)
+		}
+
 		inV1 := entity.MapCreateV2ToV1(in)
-		job := entity.Job{Status: entity.JobQueued}
+		job := entity.Job{Status: entity.JobQueued, OwnerUserID: principal.UserID}
 		if err := h.jobService.Save(r.Context(), &job); err != nil {
 			return err
 		}
