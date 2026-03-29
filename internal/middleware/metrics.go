@@ -12,11 +12,6 @@ import (
 func Metrics(m *metrics.HTTPMetrics) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Не считаем debug endpoints (эвристика)
-			if strings.HasPrefix(r.URL.Path, "/debug/") {
-				next.ServeHTTP(w, r)
-				return
-			}
 
 			m.IncInFlight()
 			defer m.DecInFlight()
@@ -35,6 +30,11 @@ func Metrics(m *metrics.HTTPMetrics) func(http.Handler) http.Handler {
 			pattern := r.Pattern
 			if pattern == "" {
 				pattern = "<unmatched>"
+			}
+
+			// Не считаем debug endpoints / events (эвристика)
+			if strings.HasPrefix(r.URL.Path, "/debug/") || pattern == "/api/v1/jobs/{id}/events" {
+				return
 			}
 			// Если pattern вида "GET /path" — режем до "/path"
 			if i := strings.IndexByte(pattern, ' '); i != -1 {
