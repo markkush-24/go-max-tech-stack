@@ -86,6 +86,8 @@ var DefaultPolicy = []RouteRule{
 	// API v1 jobs item (admin only; ownership jobs не моделируется в Step 6)
 	{Pattern: "/api/v1/jobs/{id}", Methods: []string{"GET"}, Access: AccessAdminOnly},
 
+	{Pattern: "/api/v1/jobs/{id}/grpc", Methods: []string{"GET"}, Access: AccessAdminOnly},
+
 	// API v2 users collection
 	{Pattern: "GET /api/v2/users", Methods: []string{"GET"}, Access: AccessAdminOnly},
 	{Pattern: "POST /api/v2/users", Methods: []string{"POST"}, Access: AccessAdminOnly},

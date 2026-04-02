@@ -111,6 +111,15 @@ func MapError(r *http.Request, err error) MappedProblem {
 		}
 	}
 
+	if errors.Is(err, ErrGRPCBridgeUnavailable) {
+		return MappedProblem{
+			Problem: Problem{
+				Status: http.StatusServiceUnavailable,
+				Detail: "grpc bridge unavailable",
+			},
+		}
+	}
+
 	// 2) Payload too large (413) — приходит как *http.MaxBytesError из MaxBytesReader.
 	var mbe *http.MaxBytesError
 	if errors.As(err, &mbe) {

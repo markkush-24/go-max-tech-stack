@@ -3,10 +3,12 @@ package main
 import (
 	"context"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"pet-study/internal/httputils"
+	"pet-study/internal/interceptors"
 	"pet-study/internal/metrics"
 	"pet-study/internal/middleware"
 	"pet-study/internal/outbound"
@@ -15,6 +17,8 @@ import (
 	"pet-study/internal/security"
 	"pet-study/internal/store/jobrepo"
 	"pet-study/internal/stream"
+	"pet-study/internal/transport/grpcserver"
+	"pet-study/internal/transport/pb"
 	"syscall"
 
 	"pet-study/internal/api"
@@ -26,6 +30,10 @@ import (
 	"pet-study/internal/service"
 	"pet-study/internal/store/userrepo"
 	"pet-study/internal/workerpool"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/reflection"
 )
 
 func main() {
@@ -90,6 +98,26 @@ func run() error {
 		instrumented,
 	)
 
+	var jobGRPCClient pb.JobsServiceClient
+
+	if cfg.GRPC.Enable {
+		conn, err := grpc.NewClient(
+			"127.0.0.1"+cfg.GRPC.Addr,
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+		)
+		if err != nil {
+			return err
+		}
+		defer func(conn *grpc.ClientConn) {
+			err := conn.Close()
+			if err != nil {
+				logger.Warn("grpc connection close", "err", err)
+			}
+		}(conn)
+
+		jobGRPCClient = pb.NewJobsServiceClient(conn)
+	}
+
 	profileService := service.NewUserProfileService(userService, profileClient, cfg.Outbound.Profile.Timeout)
 	profileHandler := routes.NewUsersProfileHandler(profileService)
 
@@ -100,7 +128,7 @@ func run() error {
 	userHandler := routes.NewUserHandler(userService, jobService, q, m, eventHub)
 	userHandlerV2 := routes.NewUserV2Handler(userService, jobService, q, m, eventHub)
 
-	jobsHandler := routes.NewJobHandler(jobService, eventHub, cfg.Streaming.SSEHeartbeat, cfg.Streaming.WriteTimeout)
+	jobsHandler := routes.NewJobHandler(jobService, eventHub, cfg.Streaming.SSEHeartbeat, cfg.Streaming.WriteTimeout, jobGRPCClient)
 
 	keys := make([]security.HMACKey, 0, len(cfg.Auth.JWT.Keys))
 	for _, k := range cfg.Auth.JWT.Keys {
@@ -179,5 +207,31 @@ func run() error {
 
 	server := api.NewAPIServer(cfg, handler, readiness, pool, q)
 	logger.Info("application configured", "addr", cfg.HTTP.Addr, "debug", cfg.HTTP.Debug)
+
+	if cfg.GRPC.Enable {
+		listener, err := net.Listen("tcp", cfg.GRPC.Addr)
+		if err != nil {
+			return err
+		}
+
+		grpcJobService := grpcserver.NewJobServer(jobService)
+
+		grpcServer := grpc.NewServer(
+			grpc.ChainUnaryInterceptor(
+				interceptors.UnaryRequestIDAndLogging(logger),
+			),
+		)
+		pb.RegisterJobsServiceServer(grpcServer, grpcJobService)
+		reflection.Register(grpcServer)
+
+		go func() {
+			logger.Info("gRPC server listening", "addr", cfg.GRPC.Addr)
+			if err := grpcServer.Serve(listener); err != nil {
+				logger.Error("gRPC server failed", "addr", cfg.GRPC.Addr, "err", err)
+				stop()
+			}
+		}()
+	}
+
 	return server.Run(ctx)
 }

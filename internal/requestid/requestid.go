@@ -25,7 +25,7 @@ func RequestID(ctx context.Context) (string, bool) {
 
 var ridSeq atomic.Uint64
 
-func newRequestID() string {
+func NewRequestID() string {
 	n := ridSeq.Add(1)
 	return strings.ToLower(strconv.FormatInt(time.Now().UnixNano(), 36)) + "-" + strconv.FormatInt(int64(n), 36)
 }
@@ -34,7 +34,7 @@ func RequestIDMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rid, ok := sanitizeRequestID(r.Header.Get(HeaderName))
 		if !ok {
-			rid = newRequestID()
+			rid = NewRequestID()
 		}
 
 		w.Header().Set(HeaderName, rid)

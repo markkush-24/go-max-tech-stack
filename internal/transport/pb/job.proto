@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+package pb;
+
+option go_package = "pet-study/internal/transport/pb;pb";
+
+message Job {
+  int64 id = 1;
+  JobStatus status = 2;
+}
+message GetJobRequest {
+  int64 id = 1;
+}
+
+service JobsService {
+  rpc GetJob(GetJobRequest) returns (Job) {}
+}
+
+enum JobStatus {
+  JOB_STATUS_UNSPECIFIED = 0;
+  JOB_STATUS_QUEUED = 1;
+  JOB_STATUS_RUNNING = 2;
+  JOB_STATUS_SUCCEEDED = 3;
+  JOB_STATUS_FAILED = 4;
+}

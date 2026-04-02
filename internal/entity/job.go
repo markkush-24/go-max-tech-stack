@@ -38,3 +38,9 @@ type JobInvalidParam struct {
 	Name   string `json:"name"`
 	Reason string `json:"reason"`
 }
+
+type JobBridgeDTO struct {
+	ID     int64  `json:"id"`
+	Status string `json:"status"`
+	Source string `json:"source"`
+}

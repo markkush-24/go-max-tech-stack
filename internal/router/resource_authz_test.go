@@ -80,7 +80,7 @@ func newEnv(t *testing.T) (*env, *service.UserService) {
 	hub := stream.NewHub(16)
 	v1 := routes.NewUserHandler(userSvc, jobSvc, q, m, hub)
 	v2 := routes.NewUserV2Handler(userSvc, jobSvc, q, m, hub)
-	jh := routes.NewJobHandler(jobSvc, eventHub, 5*time.Second, 5*time.Second)
+	jh := routes.NewJobHandler(jobSvc, eventHub, 5*time.Second, 5*time.Second, nil)
 
 	// profile endpoint: подключаем реальный handler с stub client
 	pc := &stubProfileClient{}

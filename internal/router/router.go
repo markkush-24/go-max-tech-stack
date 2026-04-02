@@ -54,6 +54,22 @@ func NewRouter(
 		return &httputils.MethodNotAllowedError{Allow: "GET"}
 	}))
 
+	getJobGRPCByID := func(w http.ResponseWriter, r *http.Request) error {
+		idStr := r.PathValue("id")
+		id, ok := httputils.ParsePositiveInt(idStr)
+		if !ok {
+			return &httputils.BadRequestError{Detail: mustBePositive}
+		}
+
+		return jobs.GetByIDViaGRPC(w, r, int64(id))
+	}
+	mux.Handle("/api/v1/jobs/{id}/grpc", wrap(func(w http.ResponseWriter, r *http.Request) error {
+		if r.Method == http.MethodGet {
+			return getJobGRPCByID(w, r)
+		}
+		return &httputils.MethodNotAllowedError{Allow: "GET"}
+	}))
+
 	publishEvents := func(w http.ResponseWriter, r *http.Request) error {
 
 		idStr := r.PathValue("id")
