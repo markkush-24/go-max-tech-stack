@@ -67,7 +67,7 @@ func TestQueueOverflowFastFail(t *testing.T) {
 	}
 
 	eventHub := stream.NewHub(16)
-	jh := routes.NewJobHandler(jobSvc, eventHub, 5*time.Second, 5*time.Second, nil)
+	jh := routes.NewJobHandler(jobSvc, eventHub, 5*time.Second, 0*time.Second, nil)
 
 	userRouter := apirouter.NewRouter(v1, v2, jh, nil, lim, bh, auth, rbac)
 

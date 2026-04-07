@@ -46,6 +46,169 @@ go run .\cmd\api
 curl.exe -k https://localhost:8443/livez
 ```
 
+
+## Step 7 — Protocol + Streaming
+
+### Как включить HTTPS
+
+HTTPS listener включается отдельно от обычного HTTP listener и использует тот же handler chain.
+Это позволяет сохранить dev-mode на `HTTP_ADDR`, а HTTPS поднять параллельно.
+
+PowerShell:
+
+```powershell
+$env:HTTP_ADDR=":8080"
+$env:HTTP_TLS_ENABLE="true"
+$env:HTTP_TLS_ADDR=":8443"
+$env:HTTP_TLS_CERT_FILE="C:\path\to\server.crt"
+$env:HTTP_TLS_KEY_FILE="C:\path\to\server.key"
+go run .\cmd\api
+```
+
+### Как проверить HTTP/2
+
+HTTP/2 в этом проекте активируется через HTTPS listener (ALPN) и не требует отдельного хэндлера.
+Проверка с self-signed сертификатом:
+
+```powershell
+curl.exe -k --http2 -i https://localhost:8443/livez
+curl.exe -k --http2 -i https://localhost:8443/api/v1/users/1
+```
+
+Ожидание:
+- запрос идёт по HTTPS;
+- `curl` не откатывается на обычный HTTP/1.1;
+- контракты обычного API не меняются.
+
+### Как использовать SSE endpoint
+
+Endpoint:
+- `GET /api/v1/jobs/{id}/events`
+
+Назначение:
+- поток событий job (`queued`, `running`, `succeeded`, `failed`);
+- heartbeat отправляется сервером периодически как SSE comment;
+- доступ только для владельца job или `admin`.
+
+Пример (PowerShell, с bearer token):
+
+```powershell
+curl.exe -N -i ^
+  -H "Authorization: Bearer $AdminToken" ^
+  http://localhost:8080/api/v1/jobs/1/events
+```
+
+Что важно:
+- ответ использует `Content-Type: text/event-stream`;
+- соединение остаётся открытым;
+- для медленных клиентов используется bounded subscriber buffer + drop policy;
+- обычные HTTP latency metrics для `/events` не искажаются отдельным долгоживущим stream.
+
+### Как запустить и вызвать gRPC server
+
+Внутренний gRPC transport запускается отдельно от HTTP/HTTPS.
+Сервис: `pb.JobsService`.
+Минимальный метод: `GetJob`.
+
+PowerShell:
+
+```powershell
+$env:GRPC_ENABLE="true"
+$env:GRPC_ADDR=":9090"
+go run .\cmd\api
+```
+
+Быстрая проверка через `grpcurl`:
+
+```powershell
+grpcurl -plaintext localhost:9090 list
+grpcurl -plaintext localhost:9090 describe pb.JobsService
+'{"id":1}' | grpcurl.exe -plaintext -d '@' localhost:9090 pb.JobsService/GetJob
+```
+
+HTTP → gRPC bridge demo endpoint:
+- `GET /api/v1/jobs/{id}/grpc`
+- доступ: `admin` only
+- ответ: compact HTTP DTO c источником `"grpc"`
+
+Пример:
+
+```powershell
+curl.exe -i ^
+  -H "Authorization: Bearer $AdminToken" ^
+  http://localhost:8080/api/v1/jobs/1/grpc
+```
+
+### Как сгенерировать proto / gRPC код
+
+В проекте есть два proto-файла:
+- `internal/transport/pb/user.proto`
+- `internal/transport/pb/job.proto`
+
+Нужны оба плагина:
+
+```powershell
+go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+```
+
+Генерация из корня репозитория:
+
+```powershell
+protoc -I . --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_opt=paths=source_relative internal/transport/pb/user.proto internal/transport/pb/job.proto
+```
+
+После регенерации:
+
+```powershell
+go test ./...
+```
+
+### Как использовать Range export endpoint
+
+Endpoint:
+- `GET /api/v1/users/{id}/export`
+
+Назначение:
+- экспорт пользователя как JSON-файл;
+- доступ только для владельца пользователя или `admin`;
+- поддерживается partial download через `Range`.
+
+Полный ответ:
+
+```powershell
+curl.exe -i ^
+  -H "Authorization: Bearer $AdminToken" ^
+  http://localhost:8080/api/v1/users/1/export
+```
+
+Partial download:
+
+```powershell
+curl.exe -i ^
+  -H "Authorization: Bearer $AdminToken" ^
+  -H "Range: bytes=0-9" ^
+  http://localhost:8080/api/v1/users/1/export
+```
+
+Ожидание:
+- полный ответ -> `200 OK`;
+- partial -> `206 Partial Content`;
+- присутствует `Content-Range`;
+- используется `http.ServeContent`, а не кастомный manual parser.
+
+### Инварианты Step 7 не сломаны
+
+После добавления TLS, gRPC, SSE и Range в проекте сохранены базовые ограничения:
+
+- `ServeMux` не обходится, поэтому `r.Pattern` и `PathValue()` продолжают работать для RBAC и метрик;
+- `X-Request-Id` остаётся trust-boundary controlled: невалидный входной header не принимается, а response/problem body остаются консистентными;
+- CORS применяется только к API subtree, preflight short-circuit остаётся до auth;
+- `/debug/*` монтируется только при `HTTP_DEBUG=true` и не попадает в обычные HTTP metrics;
+- таймауты обычного API (`HTTP_*`) не были заменены стриминговой логикой; для SSE используется отдельная streaming policy;
+- shutdown/readiness учитывают worker pool, gRPC runtime и stream hub;
+- manual smoke и Step 13 autotests закрывают SSE, gRPC и Range сценарии.
+
 ## Tooling
 
 Для локальных quality checks в проекте зафиксированы версии:
@@ -98,6 +261,11 @@ CI:
 | `HTTP_TLS_ADDR`                              |   string |                      `:8443` | Адрес HTTPS listener                                                                   |
 | `HTTP_TLS_CERT_FILE`                         |   string |                    *(пусто)* | Путь к PEM-сертификату сервера; обязателен при `HTTP_TLS_ENABLE=true`                  |
 | `HTTP_TLS_KEY_FILE`                          |   string |                    *(пусто)* | Путь к PEM-ключу сервера; обязателен при `HTTP_TLS_ENABLE=true`                        |
+| `GRPC_ENABLE`                                |     bool |                      `false` | Включить внутренний gRPC server                                                         |
+| `GRPC_ADDR`                                  |   string |                      `:9090` | Адрес gRPC listener; обязателен при `GRPC_ENABLE=true`                                  |
+| `STREAMING_SSE_HEARTBEAT`                    | duration |                        `15s` | Интервал heartbeat для SSE (`: heartbeat`)                                              |
+| `STREAMING_SUBSCRIBER_BUFFER`                |      int |                           16 | Размер bounded buffer на одного SSE subscriber                                          |
+| `STREAMING_WRITE_TIMEOUT`                    | duration |                        `10s` | Дедлайн записи одного SSE flush/write                                                   |
 | `DB_DSN`                                     |   string |                    *(пусто)* | Опционально (в Step 3 используется in-memory repo). Если задана — должна быть непустой |
 | `WORKERS_COUNT`                              |      int |                           10 | Кол-во воркеров worker pool для обработки async jobs (должно быть > 0)                 |
 | `QUEUE_SIZE`                                 |      int |                           10 | Размер bounded очереди для async jobs                                                  |
@@ -264,10 +432,12 @@ Readiness:
 - При `SIGINT` / `SIGTERM` сервис:
     1) помечает readiness как not-ready
     2) прекращает принимать новые async задания в очередь
-    3) вызывает `Server.Shutdown()` с дедлайном `HTTP_SHUTDOWN_TIMEOUT`
-    4) после остановки HTTP-сервера отменяет worker pool
-    5) все оставшиеся `queued` / `running` jobs переводятся в `failed` с причиной `job canceled: server shutting down`
-    6) если дедлайн истёк → делает fallback `Server.Close()`
+    3) закрывает stream hub, чтобы SSE subscribers корректно завершились
+    4) вызывает `Server.Shutdown()` / `ServeTLS` shutdown с дедлайном `HTTP_SHUTDOWN_TIMEOUT`
+    5) останавливает gRPC runtime через graceful shutdown с timeout fallback
+    6) после остановки HTTP/gRPC отменяет worker pool
+    7) все оставшиеся `queued` / `running` jobs переводятся в `failed` с причиной `job canceled: server shutting down`
+    8) если дедлайн истёк → делает fallback `Server.Close()` / принудительный gRPC stop
 
 ## Примеры запросов (curl)
 
@@ -338,6 +508,35 @@ curl.exe -i -X POST "http://localhost:8080/api/v1/users?async=1" `
 
 ```powershell
 curl.exe -i http://localhost:8080/api/v1/jobs/1
+```
+
+### SSE stream по job
+
+```powershell
+curl.exe -N -i ^
+  -H "Authorization: Bearer $AdminToken" ^
+  http://localhost:8080/api/v1/jobs/1/events
+```
+
+### HTTP -> gRPC bridge
+
+```powershell
+curl.exe -i ^
+  -H "Authorization: Bearer $AdminToken" ^
+  http://localhost:8080/api/v1/jobs/1/grpc
+```
+
+### Range export
+
+```powershell
+curl.exe -i ^
+  -H "Authorization: Bearer $AdminToken" ^
+  http://localhost:8080/api/v1/users/1/export
+
+curl.exe -i ^
+  -H "Authorization: Bearer $AdminToken" ^
+  -H "Range: bytes=0-9" ^
+  http://localhost:8080/api/v1/users/1/export
 ```
 
 ## Поддержка Protobuf (application/protobuf)
@@ -504,7 +703,7 @@ Set-Content -Path $tmp -Value $code -Encoding UTF8
 go run $tmp
 ```
 
-## Проверка 
+## Проверка
 ```powershell 
 curl.exe -i -H "Accept: application/json" http://localhost:8080/api/v1/users/1/profile
 ```

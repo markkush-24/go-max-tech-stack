@@ -31,8 +31,9 @@ type App struct {
 	UserSvc *service.UserService
 	JobSvc  *service.JobService
 
-	Q *queue.Queue
-	M *metrics.HTTPMetrics
+	Q        *queue.Queue
+	M        *metrics.HTTPMetrics
+	EventHub *stream.Hub
 
 	Limiter  *middleware.RateLimitedAPI
 	Bulkhead *middleware.BulkheadAPI
@@ -160,7 +161,7 @@ func newApp(t *testing.T, opts ...Option) (*App, options) {
 	v1 := routes.NewUserHandler(userSvc, jobSvc, q, m, hub)
 	v2 := routes.NewUserV2Handler(userSvc, jobSvc, q, m, hub)
 	eventHub := stream.NewHub(16)
-	jh := routes.NewJobHandler(jobSvc, eventHub, 5*time.Second, 5*time.Second, nil)
+	jh := routes.NewJobHandler(jobSvc, eventHub, 5*time.Second, 0*time.Second, nil)
 
 	app := &App{
 		UserRepo: userRepo,
@@ -169,6 +170,7 @@ func newApp(t *testing.T, opts ...Option) (*App, options) {
 		JobSvc:   jobSvc,
 		Q:        q,
 		M:        m,
+		EventHub: eventHub,
 		Limiter:  lim,
 		Bulkhead: bh,
 		V1:       v1,
