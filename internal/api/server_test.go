@@ -48,7 +48,8 @@ func TestRunDoesNotSetReadyOnBindFailure(t *testing.T) {
 	defer stopPool(t, pool)
 
 	readiness := health.NewReadiness()
-	server := api.NewAPIServer(testConfig(ln.Addr().String()), http.NewServeMux(), readiness, pool, q)
+	eventHub := stream.NewHub(12)
+	server := api.NewAPIServer(testConfig(ln.Addr().String()), http.NewServeMux(), readiness, pool, q, nil, eventHub)
 
 	if err := server.Run(context.Background()); err == nil {
 		t.Fatal("Run() error = nil, want bind failure")
@@ -83,9 +84,9 @@ func TestRunFailsQueuedJobsOnShutdown(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("enqueue job: %v", err)
 	}
-
+	eventHub := stream.NewHub(12)
 	readiness := health.NewReadiness()
-	server := api.NewAPIServer(testConfig("127.0.0.1:0"), http.NewServeMux(), readiness, pool, q)
+	server := api.NewAPIServer(testConfig("127.0.0.1:0"), http.NewServeMux(), readiness, pool, q, nil, eventHub)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
@@ -132,7 +133,8 @@ func TestRunFailsRunningJobsOnShutdown(t *testing.T) {
 	}
 
 	readiness := health.NewReadiness()
-	server := api.NewAPIServer(testConfig("127.0.0.1:0"), http.NewServeMux(), readiness, pool, q)
+	eventHub := stream.NewHub(12)
+	server := api.NewAPIServer(testConfig("127.0.0.1:0"), http.NewServeMux(), readiness, pool, q, nil, eventHub)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
@@ -179,7 +181,8 @@ func TestRunWithTLSEnabledServesHTTPS(t *testing.T) {
 	}
 
 	readiness := health.NewReadiness()
-	server := api.NewAPIServer(cfg, mux, readiness, pool, q)
+	eventHub := stream.NewHub(12)
+	server := api.NewAPIServer(cfg, mux, readiness, pool, q, nil, eventHub)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
@@ -236,7 +239,8 @@ func TestRunWithTLSEnabledMissingKeyPairDoesNotSetReady(t *testing.T) {
 	}
 
 	readiness := health.NewReadiness()
-	server := api.NewAPIServer(cfg, http.NewServeMux(), readiness, pool, q)
+	eventHub := stream.NewHub(12)
+	server := api.NewAPIServer(cfg, http.NewServeMux(), readiness, pool, q, nil, eventHub)
 
 	if err := server.Run(context.Background()); err == nil {
 		t.Fatal("Run() error = nil, want tls key pair error")

@@ -10,17 +10,23 @@ import (
 	"pet-study/internal/config"
 	"pet-study/internal/health"
 	"pet-study/internal/queue"
+	"pet-study/internal/stream"
 	"pet-study/internal/workerpool"
 	"sync"
 	"time"
 )
 
+type grpcRuntime interface {
+	Shutdown(ctx context.Context) error
+}
 type APIServer struct {
-	config    config.Config
-	router    http.Handler
-	readiness *health.Readiness
-	pool      *workerpool.WorkerPool
-	queue     *queue.Queue
+	config      config.Config
+	router      http.Handler
+	readiness   *health.Readiness
+	pool        *workerpool.WorkerPool
+	queue       *queue.Queue
+	grpcRuntime grpcRuntime
+	eventHub    *stream.Hub
 }
 
 func NewAPIServer(
@@ -29,13 +35,17 @@ func NewAPIServer(
 	readiness *health.Readiness,
 	pool *workerpool.WorkerPool,
 	queue *queue.Queue,
+	grpcRuntime grpcRuntime,
+	eventHub *stream.Hub,
 ) *APIServer {
 	return &APIServer{
-		config:    config,
-		router:    router,
-		readiness: readiness,
-		pool:      pool,
-		queue:     queue,
+		config:      config,
+		router:      router,
+		readiness:   readiness,
+		pool:        pool,
+		queue:       queue,
+		grpcRuntime: grpcRuntime,
+		eventHub:    eventHub,
 	}
 }
 
@@ -124,6 +134,12 @@ func (s *APIServer) Run(ctx context.Context) error {
 
 		var shutdownErrs []error
 
+		if s.eventHub != nil {
+			if err := s.eventHub.Close(); err != nil {
+				shutdownErrs = append(shutdownErrs, err)
+			}
+		}
+
 		if httpsSrv != nil {
 			if err := shutdownServer(logger, "https", httpsSrv, s.config.HTTP.ShutdownTimeout); err != nil {
 				shutdownErrs = append(shutdownErrs, err)
@@ -132,6 +148,15 @@ func (s *APIServer) Run(ctx context.Context) error {
 
 		if err := shutdownServer(logger, "http", srv, s.config.HTTP.ShutdownTimeout); err != nil {
 			shutdownErrs = append(shutdownErrs, err)
+		}
+
+		if s.grpcRuntime != nil {
+			grpcCtx, cancel := context.WithTimeout(context.Background(), s.config.HTTP.ShutdownTimeout)
+			defer cancel()
+
+			if err := s.grpcRuntime.Shutdown(grpcCtx); err != nil && !errors.Is(err, context.DeadlineExceeded) {
+				shutdownErrs = append(shutdownErrs, err)
+			}
 		}
 
 		wg.Wait()

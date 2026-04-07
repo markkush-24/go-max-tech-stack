@@ -9,6 +9,7 @@ import (
 	"pet-study/internal/queue"
 	"pet-study/internal/security"
 	"pet-study/internal/service"
+	"pet-study/internal/stream"
 	"strconv"
 	"time"
 )
@@ -138,6 +139,12 @@ func MapError(r *http.Request, err error) MappedProblem {
 	if errors.Is(err, ErrStreamingUnsupported) {
 		return MappedProblem{
 			Problem: Problem{Status: http.StatusInternalServerError, Detail: "streaming is not supported"},
+		}
+	}
+
+	if errors.Is(err, stream.ErrHubClosed) {
+		return MappedProblem{
+			Problem: Problem{Status: http.StatusServiceUnavailable, Detail: "stream hub is closed"},
 		}
 	}
 

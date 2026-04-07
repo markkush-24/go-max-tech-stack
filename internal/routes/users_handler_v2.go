@@ -106,6 +106,10 @@ func (h *UsersV2Handler) Create(w http.ResponseWriter, r *http.Request) error {
 	}
 }
 
+func (h *UsersV2Handler) Export(w http.ResponseWriter, r *http.Request, id int) error {
+	return nil
+}
+
 func (h *UsersV2Handler) GetByID(w http.ResponseWriter, r *http.Request, id int) error {
 	principal, ok := security.FromContext(r.Context())
 	if !ok {

@@ -1,13 +1,18 @@
 package stream
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"expvar"
 	"fmt"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 )
+
+var ErrHubClosed = errors.New("stream hub is closed")
 
 var (
 	outOnce        sync.Once
@@ -25,6 +30,7 @@ type Hub struct {
 	subscribers int64
 	eventsTotal int64
 	dropsTotal  int64
+	closed      atomic.Bool
 }
 
 type Subscription struct {
@@ -56,75 +62,81 @@ func NewHub(subscriberBuffer int) *Hub {
 	}
 
 	return &Hub{
+		closed:           atomic.Bool{},
 		subs:             make(map[int64]map[uint64]*subscriber),
 		subscriberBuffer: subscriberBuffer,
 	}
 }
 
-func (h *Hub) Subscribe(jobID int64) (Subscription, func()) {
+func (h *Hub) Subscribe(jobID int64) (Subscription, func(), error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	h.nextID++
-	id := h.nextID
+	if h.closed.Load() == false {
+		h.nextID++
+		id := h.nextID
 
-	ch := make(chan Event, h.subscriberBuffer)
+		ch := make(chan Event, h.subscriberBuffer)
 
-	if h.subs[jobID] == nil {
-		h.subs[jobID] = make(map[uint64]*subscriber)
+		if h.subs[jobID] == nil {
+			h.subs[jobID] = make(map[uint64]*subscriber)
+		}
+
+		h.subs[jobID][id] = &subscriber{
+			id:    id,
+			jobID: jobID,
+			ch:    ch,
+		}
+
+		h.subscribers++
+		sseSubscribers.Add("subscribers", 1)
+
+		var once sync.Once
+
+		unsubscribe := func() {
+			once.Do(func() {
+				h.mu.Lock()
+				defer h.mu.Unlock()
+
+				jobSubs, ok := h.subs[jobID]
+				if !ok {
+					return
+				}
+
+				if _, ok := jobSubs[id]; !ok {
+					return
+				}
+
+				delete(jobSubs, id)
+				h.subscribers--
+				sseSubscribers.Add("subscribers", -1)
+
+				if len(jobSubs) == 0 {
+					delete(h.subs, jobID)
+				}
+			})
+		}
+
+		return Subscription{C: ch}, unsubscribe, nil
 	}
-
-	h.subs[jobID][id] = &subscriber{
-		id:    id,
-		jobID: jobID,
-		ch:    ch,
-	}
-
-	h.subscribers++
-	sseSubscribers.Add("subscribers", 1)
-
-	var once sync.Once
-
-	unsubscribe := func() {
-		once.Do(func() {
-			h.mu.Lock()
-			defer h.mu.Unlock()
-
-			jobSubs, ok := h.subs[jobID]
-			if !ok {
-				return
-			}
-
-			if _, ok := jobSubs[id]; !ok {
-				return
-			}
-
-			delete(jobSubs, id)
-			h.subscribers--
-			sseSubscribers.Add("subscribers", -1)
-
-			if len(jobSubs) == 0 {
-				delete(h.subs, jobID)
-			}
-		})
-	}
-
-	return Subscription{C: ch}, unsubscribe
+	return Subscription{}, func() {}, ErrHubClosed
 }
 
 func (h *Hub) Publish(jobID int64, ev Event) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	h.eventsTotal++
-	sseEventsTotal.Add("eventsTotal", 1)
+	if h.closed.Load() == false {
+		h.eventsTotal++
+		sseEventsTotal.Add("eventsTotal", 1)
 
-	for _, sub := range h.subs[jobID] {
-		select {
-		case sub.ch <- ev:
-		default:
-			h.dropsTotal++
-			sseDropsTotal.Add("dropsTotal", 1)
+		for _, sub := range h.subs[jobID] {
+			select {
+			case sub.ch <- ev:
+			default:
+				h.dropsTotal++
+				sseDropsTotal.Add("dropsTotal", 1)
+			}
 		}
 	}
 }
@@ -167,6 +179,41 @@ func WriteSSE(w http.ResponseWriter, event Event) error {
 	_, err = fmt.Fprintf(w, "data: %s\n\n", data)
 	if err != nil {
 		return err
+	}
+
+	return nil
+}
+
+func (h *Hub) Ready(ctx context.Context) error {
+	if h.closed.Load() == true {
+		return ErrHubClosed
+	}
+	return nil
+}
+
+func (h *Hub) Close() error {
+	if h == nil {
+		return nil
+	}
+
+	if !h.closed.CompareAndSwap(false, true) {
+		return nil
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	for jobID, jobSubs := range h.subs {
+		for id, sub := range jobSubs {
+			close(sub.ch)
+			delete(jobSubs, id)
+		}
+		delete(h.subs, jobID)
+	}
+
+	if h.subscribers != 0 {
+		sseSubscribers.Add("subscribers", -h.subscribers)
+		h.subscribers = 0
 	}
 
 	return nil

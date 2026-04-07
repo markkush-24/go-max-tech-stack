@@ -29,6 +29,13 @@ type CreateUserInputV2 struct {
 	Email    string `json:"email"`
 }
 
+type UserExport struct {
+	ID    int64  `json:"id"`
+	Name  string `json:"name"`
+	Email string `json:"email"`
+	Age   int    `json:"age"`
+}
+
 func MapCreateV2ToV1(in CreateUserInputV2) CreateUserInput {
 	return CreateUserInput{
 		Name:  in.FullName,

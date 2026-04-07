@@ -122,7 +122,10 @@ func (h *JobHandler) Events(w http.ResponseWriter, r *http.Request, id int) erro
 		return httputils.ErrStreamingUnsupported
 
 	}
-	subscription, unsubscribe := h.eventHub.Subscribe(int64(id))
+	subscription, unsubscribe, err := h.eventHub.Subscribe(int64(id))
+	if err != nil {
+		return err
+	}
 	defer unsubscribe()
 
 	ticker := time.NewTicker(h.heartbeat)

@@ -1,6 +1,8 @@
 package routes
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -145,6 +147,42 @@ func (h *UsersHandler) GetByID(w http.ResponseWriter, r *http.Request, id int) e
 			Email: u.Email,
 		},
 	)
+}
+
+func (h *UsersHandler) Export(w http.ResponseWriter, r *http.Request, id int) error {
+	principal, ok := security.FromContext(r.Context())
+	if !ok {
+		return security.NewUnauthorized(security.AuthNMissing, nil)
+	}
+
+	readUser := security.CanReadUser(principal, int64(id))
+	if !readUser {
+		return security.NewForbidden(security.AuthZForbidden, nil)
+	}
+
+	u, err := h.userService.GetByID(r.Context(), id)
+	if err != nil {
+		return err
+	}
+
+	out := entity.UserExport{
+		ID:    int64(u.ID),
+		Name:  u.Name,
+		Email: u.Email,
+		Age:   u.Age,
+	}
+
+	data, err := json.Marshal(out)
+	if err != nil {
+		return err
+	}
+
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="user-%d-export.json"`, id))
+	w.Header().Set("Content-Type", "application/json")
+
+	reader := bytes.NewReader(data)
+	http.ServeContent(w, r, fmt.Sprintf("user-%d-export.json", id), time.Time{}, reader)
+	return nil
 }
 
 func (h *UsersHandler) List(w http.ResponseWriter, r *http.Request) error {

@@ -3,37 +3,33 @@ package main
 import (
 	"context"
 	"log/slog"
-	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"pet-study/internal/api"
+	"pet-study/internal/config"
+	"pet-study/internal/health"
 	"pet-study/internal/httputils"
-	"pet-study/internal/interceptors"
 	"pet-study/internal/metrics"
 	"pet-study/internal/middleware"
 	"pet-study/internal/outbound"
 	"pet-study/internal/outbound/httpclient"
 	"pet-study/internal/queue"
-	"pet-study/internal/security"
-	"pet-study/internal/store/jobrepo"
-	"pet-study/internal/stream"
-	"pet-study/internal/transport/grpcserver"
-	"pet-study/internal/transport/pb"
-	"syscall"
-
-	"pet-study/internal/api"
-	"pet-study/internal/config"
-	"pet-study/internal/health"
 	"pet-study/internal/requestid"
 	apirouter "pet-study/internal/router"
-	routes "pet-study/internal/routes"
+	"pet-study/internal/routes"
+	"pet-study/internal/security"
 	"pet-study/internal/service"
+	"pet-study/internal/store/jobrepo"
 	"pet-study/internal/store/userrepo"
+	"pet-study/internal/stream"
+	"pet-study/internal/transport/grpcclient"
+	"pet-study/internal/transport/grpcserver"
+	"pet-study/internal/transport/pb"
 	"pet-study/internal/workerpool"
+	"syscall"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
-	"google.golang.org/grpc/reflection"
 )
 
 func main() {
@@ -57,6 +53,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
+
 	proxyAPI, err := middleware.NewProxyAPI(cfg.Proxy)
 	if err != nil {
 		return err
@@ -81,13 +78,10 @@ func run() error {
 		return poolErr
 	}
 
-	readiness := health.NewReadiness(
-		health.Check{Name: "repo", Fn: userRepository.Ping},
-		health.Check{Name: "workerpool", Fn: pool.CheckRunning})
-
 	//Client-Transport
 	httpClient, tr := httpclient.New(cfg.Outbound)
 	defer tr.CloseIdleConnections()
+
 	rawProfileClient := outbound.NewClientImpl(cfg.Outbound.Profile.Base, httpClient)
 	instrumented := outbound.NewInstrumentedProfileClient(cfg.Outbound.Profile.Base, rawProfileClient, logger)
 
@@ -98,25 +92,42 @@ func run() error {
 		instrumented,
 	)
 
-	var jobGRPCClient pb.JobsServiceClient
+	var (
+		grpcRuntime    *grpcserver.Runtime
+		jobsGRPCClient pb.JobsServiceClient
+		grpcConn       *grpc.ClientConn
+		checkSlice     []health.Check
+	)
 
 	if cfg.GRPC.Enable {
-		conn, err := grpc.NewClient(
-			"127.0.0.1"+cfg.GRPC.Addr,
-			grpc.WithTransportCredentials(insecure.NewCredentials()),
-		)
+		grpcRuntime, err = grpcserver.NewRuntime(cfg.GRPC.Addr, jobService, logger)
 		if err != nil {
 			return err
 		}
-		defer func(conn *grpc.ClientConn) {
-			err := conn.Close()
-			if err != nil {
-				logger.Warn("grpc connection close", "err", err)
-			}
-		}(conn)
+		grpcRuntime.Start(stop)
 
-		jobGRPCClient = pb.NewJobsServiceClient(conn)
+		jobsGRPCClient, grpcConn, err = grpcclient.NewJobsClient(cfg.GRPC.Addr)
+		if err != nil {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.HTTP.ShutdownTimeout)
+			defer cancel()
+			_ = grpcRuntime.Shutdown(shutdownCtx)
+			return err
+		}
+
+		defer func() {
+			if grpcConn != nil {
+				if err := grpcConn.Close(); err != nil {
+					logger.Warn("grpc client connection close", "err", err)
+				}
+			}
+		}()
+		checkSlice = append(checkSlice, health.Check{Name: "grpc", Fn: grpcRuntime.Ready})
 	}
+
+	checkSlice = append(checkSlice, health.Check{Name: "repo", Fn: userRepository.Ping})
+	checkSlice = append(checkSlice, health.Check{Name: "workerpool", Fn: pool.CheckRunning})
+	checkSlice = append(checkSlice, health.Check{Name: "streamHub", Fn: eventHub.Ready})
+	readiness := health.NewReadiness(checkSlice...)
 
 	profileService := service.NewUserProfileService(userService, profileClient, cfg.Outbound.Profile.Timeout)
 	profileHandler := routes.NewUsersProfileHandler(profileService)
@@ -127,8 +138,13 @@ func run() error {
 	// Routers
 	userHandler := routes.NewUserHandler(userService, jobService, q, m, eventHub)
 	userHandlerV2 := routes.NewUserV2Handler(userService, jobService, q, m, eventHub)
-
-	jobsHandler := routes.NewJobHandler(jobService, eventHub, cfg.Streaming.SSEHeartbeat, cfg.Streaming.WriteTimeout, jobGRPCClient)
+	jobsHandler := routes.NewJobHandler(
+		jobService,
+		eventHub,
+		cfg.Streaming.SSEHeartbeat,
+		cfg.Streaming.WriteTimeout,
+		jobsGRPCClient,
+	)
 
 	keys := make([]security.HMACKey, 0, len(cfg.Auth.JWT.Keys))
 	for _, k := range cfg.Auth.JWT.Keys {
@@ -205,33 +221,8 @@ func run() error {
 	handler = requestid.RequestIDMiddleware(handler)
 	handler = proxyAPI.SanitizeRequestIDHeader(handler)
 
-	server := api.NewAPIServer(cfg, handler, readiness, pool, q)
+	server := api.NewAPIServer(cfg, handler, readiness, pool, q, grpcRuntime, eventHub)
 	logger.Info("application configured", "addr", cfg.HTTP.Addr, "debug", cfg.HTTP.Debug)
-
-	if cfg.GRPC.Enable {
-		listener, err := net.Listen("tcp", cfg.GRPC.Addr)
-		if err != nil {
-			return err
-		}
-
-		grpcJobService := grpcserver.NewJobServer(jobService)
-
-		grpcServer := grpc.NewServer(
-			grpc.ChainUnaryInterceptor(
-				interceptors.UnaryRequestIDAndLogging(logger),
-			),
-		)
-		pb.RegisterJobsServiceServer(grpcServer, grpcJobService)
-		reflection.Register(grpcServer)
-
-		go func() {
-			logger.Info("gRPC server listening", "addr", cfg.GRPC.Addr)
-			if err := grpcServer.Serve(listener); err != nil {
-				logger.Error("gRPC server failed", "addr", cfg.GRPC.Addr, "err", err)
-				stop()
-			}
-		}()
-	}
 
 	return server.Run(ctx)
 }

@@ -78,6 +78,7 @@ var DefaultPolicy = []RouteRule{
 
 	// API v1 users item
 	{Pattern: "/api/v1/users/{id}", Methods: []string{"GET"}, Access: AccessAuthenticated, ResourceConstraint: ResourceSelfOnly},
+	{Pattern: "/api/v1/users/{id}/export", Methods: []string{"GET"}, Access: AccessAuthenticated, ResourceConstraint: ResourceSelfOnly},
 	{Pattern: "/api/v1/users/{id}/profile", Methods: []string{"GET"}, Access: AccessAuthenticated, ResourceConstraint: ResourceSelfOnly},
 
 	// SSE Stream

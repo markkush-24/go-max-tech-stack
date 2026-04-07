@@ -120,6 +120,22 @@ func NewRouter(
 		}))
 	}
 
+	ranger := func(w http.ResponseWriter, r *http.Request) error {
+
+		idStr := r.PathValue("id")
+		id, ok := httputils.ParsePositiveInt(idStr)
+		if !ok {
+			return &httputils.BadRequestError{Detail: mustBePositive}
+		}
+		return users.Export(w, r, id)
+	}
+	mux.Handle("/api/v1/users/{id}/export", wrap(func(w http.ResponseWriter, r *http.Request) error {
+		if r.Method == http.MethodGet {
+			return ranger(w, r)
+		}
+		return &httputils.MethodNotAllowedError{Allow: "GET"}
+	}))
+
 	// 405 для коллекции
 	mux.Handle("/api/v1/users", wrap(
 		func(w http.ResponseWriter, r *http.Request) error {
