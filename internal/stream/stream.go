@@ -72,7 +72,7 @@ func (h *Hub) Subscribe(jobID int64) (Subscription, func(), error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	if h.closed.Load() == false {
+	if !h.closed.Load() {
 		h.nextID++
 		id := h.nextID
 
@@ -126,7 +126,7 @@ func (h *Hub) Publish(jobID int64, ev Event) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	if h.closed.Load() == false {
+	if !h.closed.Load() {
 		h.eventsTotal++
 		sseEventsTotal.Add("eventsTotal", 1)
 
@@ -185,7 +185,7 @@ func WriteSSE(w http.ResponseWriter, event Event) error {
 }
 
 func (h *Hub) Ready(ctx context.Context) error {
-	if h.closed.Load() == true {
+	if h.closed.Load() {
 		return ErrHubClosed
 	}
 	return nil
