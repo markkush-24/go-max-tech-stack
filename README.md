@@ -252,6 +252,20 @@ CI:
 - Проверки в CI: `gofmt`, `go test`, `go vet`, `go test -race`, `staticcheck`, `govulncheck -mode binary`
 - Vulnerability scan собирает binary на patched toolchain `go1.25.8`
 
+## Repository archive / export
+
+Для передачи или аудита проекта не архивируй рабочую директорию вручную. Используй export из committed source state:
+
+```powershell
+.\scripts\export-archive.ps1
+```
+
+По умолчанию архив создаётся в `.artifacts/pet-study-source.zip`. Скрипт использует `git archive HEAD`, исключает
+локальные артефакты и проверяет архив на очевидные secret/artifact paths. Development certificates and keys для
+локального HTTPS генерируются на машине разработчика и не коммитятся.
+
+Подробные правила: `docs/repository-archive-hygiene.md`.
+
 ## Конфигурация (ENV)
 
 Все значения читаются из переменных окружения. Если переменная **не задана** — используется дефолт.

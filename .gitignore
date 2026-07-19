@@ -13,6 +13,7 @@ coverage*.out
 *.log
 
 # Common build dirs (если появятся)
+.artifacts/
 bin/
 dist/
 tmp/
@@ -45,3 +46,9 @@ Thumbs.db
 *.local
 *.pem
 *.key
+certs/
+
+
+# --- Local request / curl scratch ---
+req*.json
+-H
