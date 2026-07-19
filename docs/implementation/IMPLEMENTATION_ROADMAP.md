@@ -8,7 +8,7 @@ Make a clean checkout buildable, testable and safe to hand to agents.
 
 Tasks: **7** (`TASK-001`–`TASK-007`).
 
-Exit gate: a clean checkout on Go 1.25.8 can run the declared quality commands and generated artifacts are reproducible.
+Exit gate: a clean checkout on Go 1.25.12 can run the declared quality commands and generated artifacts are reproducible.
 
 ## P1 — Critical correctness, lifecycle and security
 

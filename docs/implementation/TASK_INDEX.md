@@ -16,7 +16,7 @@ Make a clean checkout buildable, testable and safe to hand to agents.
 | [TASK-004](tasks/TASK-004-archive-hygiene.md) | P2 | — | DONE | Define repository and archive hygiene rules |
 | [TASK-005](tasks/TASK-005-align-config-docs.md) | P1 | — | DONE | Align runtime defaults, README and actual route surface |
 | [TASK-006](tasks/TASK-006-isolate-config-tests.md) | P1 | — | DONE | Make configuration tests independent of host environment |
-| [TASK-007](tasks/TASK-007-target-toolchain-baseline.md) | P0 | TASK-003 | READY | Establish the Go 1.25.8 verification baseline |
+| [TASK-007](tasks/TASK-007-target-toolchain-baseline.md) | P0 | TASK-003 | READY | Establish the Go 1.25.12 verification baseline |
 
 ## P1 — Critical correctness, lifecycle and security
 

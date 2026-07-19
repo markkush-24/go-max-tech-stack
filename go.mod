@@ -2,7 +2,7 @@ module pet-study
 
 go 1.25.0
 
-toolchain go1.25.8
+toolchain go1.25.12
 
 require (
 	golang.org/x/time v0.14.0

@@ -8,7 +8,7 @@ HTTP-сервис на Go (net/http, Go 1.25). Ресурс: **User**. Есть 
 ### Требования
 
 - Go **1.25**
-- Рекомендуемый patch level: **Go 1.25.8+**
+- Рекомендуемый patch level: **Go 1.25.12+**
 
 ### Локально
 
@@ -268,7 +268,7 @@ CI:
 
 - GitHub Actions workflow: `.github/workflows/ci.yml`
 - Проверки в CI: `gofmt`, `go test`, `go vet`, `go test -race`, `staticcheck`, `govulncheck -mode binary`
-- Vulnerability scan собирает binary на patched toolchain `go1.25.8`
+- Vulnerability scan собирает binary на patched toolchain `go1.25.12`
 
 ## Repository archive / export
 

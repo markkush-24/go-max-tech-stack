@@ -1,4 +1,4 @@
-# TASK-007 — Establish the Go 1.25.8 verification baseline
+# TASK-007 — Establish the Go 1.25.12 verification baseline
 
 ## Metadata
 
@@ -11,7 +11,7 @@
 
 ## Goal
 
-Establish the Go 1.25.8 verification baseline. Complete this outcome without implementing adjacent roadmap tasks.
+Establish the Go 1.25.12 verification baseline. Complete this outcome without implementing adjacent roadmap tasks.
 
 ## Audit evidence
 
@@ -38,14 +38,14 @@ The audit found the behavior above in the uploaded working tree. This card conve
 
 ## Implementation requirements
 
-1. Run the full project with the declared Go 1.25.8 toolchain.
+1. Run the full project with the declared Go 1.25.12 toolchain.
 2. Record build, test, race, vet and vulnerability-scan results.
 3. Do not change the target toolchain merely to satisfy an older local runtime.
 4. Persist the baseline commands in the repository.
 
 ## Acceptance criteria
 
-- [ ] `go test ./...` succeeds on Go 1.25.8.
+- [ ] `go test ./...` succeeds on Go 1.25.12.
 - [ ] Race/vet results are recorded or explicitly blocked with evidence.
 - [ ] The CI toolchain matches `go.mod`.
 
