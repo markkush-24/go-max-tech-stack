@@ -27,6 +27,7 @@
 - **Auth**: требуется валидный JWT.
 - **Admin**: требуется валидный JWT и роль `admin`.
 - **Self**: resource-level проверка для роли `user`: `sub == {id}`.
+- **Job owner**: resource-level проверка для job: `sub == job.owner_user_id`.
 
 | Route (ServeMux pattern)     | Methods | Access | Resource-level | Примечания                                                                   |
 |------------------------------|--------:|--------|----------------|------------------------------------------------------------------------------|
@@ -37,8 +38,11 @@
 | `POST /api/v1/users`         |    POST | Admin  | —              | создание пользователя                                                        |
 | `/api/v1/users`              |       * | Admin  | —              | fallback-обработчик коллекции (хелпер для 405); не должен стать обходом auth |
 | `/api/v1/users/{id}`         |     GET | Auth   | Self           | `admin` читает любых; `user` — только себя                                   |
+| `/api/v1/users/{id}/export`  |     GET | Auth   | Self           | экспорт пользователя; поддерживает Range через `http.ServeContent`           |
 | `/api/v1/users/{id}/profile` |     GET | Auth   | Self           | то же правило, что и для `/api/v1/users/{id}`                                |
-| `/api/v1/jobs/{id}`          |     GET | Admin  | —              | ownership jobs не моделируется в Step 6; оставляем admin-only                |
+| `/api/v1/jobs/{id}`          |     GET | Admin  | —              | текущая RBAC-политика оставляет route admin-only                             |
+| `/api/v1/jobs/{id}/events`   |     GET | Auth   | Job owner      | SSE stream job events; owner или `admin` после загрузки job                  |
+| `/api/v1/jobs/{id}/grpc`     |     GET | Admin  | —              | HTTP -> gRPC bridge; успешен только когда gRPC client подключён              |
 | `GET /api/v2/users`          |     GET | Admin  | —              | список всех пользователей (v2)                                               |
 | `POST /api/v2/users`         |    POST | Admin  | —              | создание пользователя (v2)                                                   |
 | `/api/v2/users`              |       * | Admin  | —              | fallback-обработчик коллекции v2 (хелпер для 405)                            |

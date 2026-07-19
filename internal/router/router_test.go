@@ -40,6 +40,7 @@ func TestRouting_StatusCodes(t *testing.T) {
 		{"not found", "GET", "/api/v1/nope", 404},
 		{"v1 item bad id", "GET", "/api/v1/users/abc", 400},
 		{"v1 item extra segment", "GET", "/api/v1/users/1/extra", 404},
+		{"v2 item not registered", "GET", "/api/v2/users/1", 404},
 		{"v1 405 collection", "PUT", "/api/v1/users", 405},
 		{"v2 405 collection", "PUT", "/api/v2/users", 405},
 	}

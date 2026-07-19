@@ -14,6 +14,8 @@ func TestLoad_Defaults(t *testing.T) {
 		"HTTP_TLS_KEY_FILE",
 		"GRPC_ENABLE",
 		"GRPC_ADDR",
+		"STORAGE_BACKEND",
+		"DB_DSN",
 		"STREAMING_SSE_HEARTBEAT",
 		"STREAMING_SUBSCRIBER_BUFFER",
 		"STREAMING_WRITE_TIMEOUT",
@@ -26,6 +28,13 @@ func TestLoad_Defaults(t *testing.T) {
 
 	if cfg.HTTP.TLS.Enable {
 		t.Fatalf("HTTP.TLS.Enable=true want=false")
+	}
+	if cfg.DB.StorageBackend != "postgres" {
+		t.Fatalf("DB.StorageBackend=%q want=%q", cfg.DB.StorageBackend, "postgres")
+	}
+	const wantDSN = "postgres://petstudy:petstudy@localhost:5432/petstudy?sslmode=disable"
+	if cfg.DB.DSN != wantDSN {
+		t.Fatalf("DB.DSN=%q want=%q", cfg.DB.DSN, wantDSN)
 	}
 }
 

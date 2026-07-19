@@ -12,6 +12,16 @@ HTTP-сервис на Go (net/http, Go 1.25). Ресурс: **User**. Есть 
 
 ### Локально
 
+Канонический backend по умолчанию: `STORAGE_BACKEND=postgres`.
+Перед запуском приложения подними локальный PostgreSQL, соответствующий default `DB_DSN`:
+
+```powershell
+docker compose up -d postgres
+```
+
+Приложение на старте проверяет доступность PostgreSQL через ping. SQL schema должна быть применена из `migrations/*.up.sql`
+отдельно; встроенного migration runner в `cmd/api` сейчас нет.
+
 **Linux/macOS (bash/zsh):**
 
 ```bash
@@ -24,7 +34,15 @@ go run ./cmd/api
 go run .\cmd\api
 ```
 
-По умолчанию сервер слушает `:8080`.
+По умолчанию сервер слушает `:8080` и подключается к
+`postgres://petstudy:petstudy@localhost:5432/petstudy?sslmode=disable`.
+
+Для короткого локального запуска без PostgreSQL можно явно выбрать volatile in-memory backend:
+
+```powershell
+$env:STORAGE_BACKEND="memory"
+go run .\cmd\api
+```
 
 ### Локальный HTTPS
 
@@ -290,7 +308,8 @@ CI:
 | `STREAMING_SSE_HEARTBEAT`                    | duration |                        `15s` | Интервал heartbeat для SSE (`: heartbeat`)                                              |
 | `STREAMING_SUBSCRIBER_BUFFER`                |      int |                           16 | Размер bounded buffer на одного SSE subscriber                                          |
 | `STREAMING_WRITE_TIMEOUT`                    | duration |                        `10s` | Дедлайн записи одного SSE flush/write                                                   |
-| `DB_DSN`                                     |   string |                    *(пусто)* | Опционально (в Step 3 используется in-memory repo). Если задана — должна быть непустой |
+| `STORAGE_BACKEND`                            |   string |                   `postgres` | Backend репозиториев: `postgres` или `memory`; default — PostgreSQL                     |
+| `DB_DSN`                                     |   string | `postgres://petstudy:petstudy@localhost:5432/petstudy?sslmode=disable` | DSN для PostgreSQL backend; если задана — должна быть непустой                         |
 | `WORKERS_COUNT`                              |      int |                           10 | Кол-во воркеров worker pool для обработки async jobs (должно быть > 0)                 |
 | `QUEUE_SIZE`                                 |      int |                           10 | Размер bounded очереди для async jobs                                                  |
 | `RATE_LIMIT_RPS`                             |      int |                            5 | Глобальный rate limit (requests per second) для API (token bucket)                     |
@@ -347,6 +366,8 @@ HTTP_ADDR=":8080" HTTP_DEBUG=true go run ./cmd/api
 ### Jobs (async)
 
 - `GET /api/v1/jobs/{id}`
+- `GET /api/v1/jobs/{id}/events`
+- `GET /api/v1/jobs/{id}/grpc`
 
 Async режим включается query-параметром `async=1`:
 
@@ -360,6 +381,16 @@ Shutdown semantics для async jobs: **fail-fast**. На остановке с�
 `queued` и `running` переводятся в `failed` с причиной `job canceled: server shutting down`.
 Worker pool хранит свой внутренний lifecycle-context только для времени жизни воркеров; это не request-context, а
 производный context приложения, передаваемый из `main`.
+
+`GET /api/v1/jobs/{id}/events` — SSE stream job events. `GET /api/v1/jobs/{id}/grpc` — HTTP -> gRPC bridge; route
+зарегистрирован всегда, но успешный ответ требует `GRPC_ENABLE=true`, чтобы `cmd/api` поднял gRPC server и подключил
+loopback gRPC client.
+
+### User export
+
+- `GET /api/v1/users/{id}/export`
+
+Экспортирует пользователя как JSON-файл и поддерживает `Range` через `http.ServeContent`.
 
 ### Health
 
@@ -381,7 +412,8 @@ Readiness:
 - для этого сервер стартует через `net.Listen + Serve`: `ListenAndServe()` скрывает фазу bind внутри себя, поэтому при
   старом запуске readiness мог стать `true` ещё до подтверждения, что порт действительно занят процессом
 - fail-fast `503`, если сервис помечен как not-ready (lifecycle)
-- далее выполняются checks (сейчас: `repo.Ping`, `workerpool`) с дедлайном **200ms**
+- далее выполняются checks с дедлайном **200ms**: repository ping, `workerpool`, `streamHub`, а также `grpc`,
+  если `GRPC_ENABLE=true`
 
 Примечание про in-memory хранилища:
 
@@ -395,6 +427,17 @@ Readiness:
 - `GET /debug/pprof/` и подпути — pprof
 
 Если `HTTP_DEBUG=false`, `/debug/*` вернёт `404`.
+
+### Optional integrations
+
+- PostgreSQL backend включён по умолчанию: `STORAGE_BACKEND=postgres`; локальная БД должна быть доступна по `DB_DSN`.
+- In-memory backend включается только явно: `STORAGE_BACKEND=memory`; данные живут только в процессе.
+- HTTPS listener включается только при `HTTP_TLS_ENABLE=true` и требует `HTTP_TLS_CERT_FILE` + `HTTP_TLS_KEY_FILE`.
+- Direct gRPC server включается только при `GRPC_ENABLE=true`; HTTP bridge `/api/v1/jobs/{id}/grpc` без этого вернёт
+  ошибку недоступности bridge.
+- Debug routes `/debug/*` монтируются только при `HTTP_DEBUG=true` и требуют admin JWT.
+- Profile endpoint `/api/v1/users/{id}/profile` зарегистрирован в `cmd/api`, но для успешного ответа нужен upstream
+  `OUTBOUND_PROFILE_BASE_URL` (`http://localhost:8090` по умолчанию).
 
 ### Runtime / GC диагностика
 
@@ -839,8 +882,10 @@ Authorization: Bearer <jwt>
 Текущее поведение:
 
 - `GET /api/v1/users/{id}` — admin может читать любого, user только себя
-- `GET /api/v2/users/{id}` — admin может читать любого, user только себя
 - `GET /api/v1/jobs/{id}` — admin only
+- `GET /api/v1/jobs/{id}/events` — owner или admin
+- `GET /api/v1/jobs/{id}/grpc` — admin only; требует включённый gRPC runtime для успешного bridge-ответа
+- `GET /api/v1/users/{id}/export` — admin может читать любого, user только себя
 - `GET /debug/*` — только при `HTTP_DEBUG=true`, и только admin
 - `/livez`, `/readyz` — без auth
 
