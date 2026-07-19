@@ -11,8 +11,8 @@ Make a clean checkout buildable, testable and safe to hand to agents.
 | Task | Priority | Dependencies | Initial status | Title |
 |---|---|---|---|---|
 | [TASK-001](tasks/TASK-001-repo-track-quality-assets.md) | P0 | — | DONE | Track CI, scripts, tools and generated-artifact policy |
-| [TASK-002](tasks/TASK-002-pin-codegen-tools.md) | P0 | TASK-001 | READY | Pin protobuf and quality-tool versions |
-| [TASK-003](tasks/TASK-003-clean-checkout-gate.md) | P0 | TASK-001, TASK-002 | BLOCKED | Add clean-checkout and generated-drift verification |
+| [TASK-002](tasks/TASK-002-pin-codegen-tools.md) | P0 | TASK-001 | DONE | Pin protobuf and quality-tool versions |
+| [TASK-003](tasks/TASK-003-clean-checkout-gate.md) | P0 | TASK-001, TASK-002 | READY | Add clean-checkout and generated-drift verification |
 | [TASK-004](tasks/TASK-004-archive-hygiene.md) | P2 | — | BACKLOG | Define repository and archive hygiene rules |
 | [TASK-005](tasks/TASK-005-align-config-docs.md) | P1 | — | BACKLOG | Align runtime defaults, README and actual route surface |
 | [TASK-006](tasks/TASK-006-isolate-config-tests.md) | P1 | — | BACKLOG | Make configuration tests independent of host environment |

@@ -40,3 +40,29 @@ Notes:
 Unlocked tasks:
 - TASK-002
 ```
+
+```text
+Task: TASK-002
+Accepted: 2026-07-19
+Commit: ab19e5c9
+Reviewer: Mark
+Verification:
+- go mod tidy: PASS; run in tools module
+- .\scripts\install-tools.ps1: PASS
+- go test ./scripts/...: PASS
+- go generate ./...: PASS
+- go generate ./...: PASS; second consecutive run produced no generated drift
+- git diff --name-status -- internal/transport/pb: PASS; no generated protobuf diff
+- go test ./...: PASS
+- go vet ./...: PASS
+- git diff --exit-code: PASS after staging task changes
+- git diff --cached --check: PASS
+- staged diff scan for @latest, local paths and obvious secrets: PASS
+Notes:
+- Pinned protobuf codegen tools and quality tools through tools/go.mod.
+- Added canonical cross-platform protobuf generation entrypoint via go generate ./....
+- Documented required external protoc version: libprotoc 34.0.
+- Remaining limitation: developers still need external protoc installed separately.
+Unlocked tasks:
+- TASK-003
+```
