@@ -94,3 +94,28 @@ Notes:
 Unlocked tasks:
 - TASK-007
 ```
+
+```text
+Task: TASK-004
+Accepted: 2026-07-19
+Commit: 86e577b8
+Reviewer: Mark
+Verification:
+- go test ./scripts/...: PASS
+- .\scripts\export-archive.ps1 -Force: PASS
+- git check-ignore certs/localhost-key.pem server.log .idea || true: PASS
+- find . -maxdepth 2 -type f | sort: FAIL; PowerShell resolved Windows find.exe, which does not support POSIX flags
+- C:\Program Files\Git\usr\bin\find.exe . -maxdepth 2 -type f | C:\Program Files\Git\usr\bin\sort.exe: PASS
+- disposable clone export from committed patch: PASS
+- negative check with tracked server.log: PASS; export failed as expected
+- negative check with fake private-key marker: PASS; export failed as expected
+- go test ./...: PASS
+- git diff --cached --check: PASS
+Notes:
+- Added repository hygiene ignores, safe git archive export, archive path checks and private-key marker checks.
+- Documented repeatable export flow and local-only development certificate/key generation.
+- Remaining limitation: exact POSIX find command was not runnable in PowerShell; Git for Windows find.exe equivalent passed.
+- Existing unrelated tools/tools.go deletion was outside TASK-004.
+Unlocked tasks:
+- none
+```
