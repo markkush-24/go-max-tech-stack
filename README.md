@@ -141,15 +141,22 @@ curl.exe -i ^
 
 ### Как сгенерировать proto / gRPC код
 
-В проекте есть два proto-файла:
+Политика generated artifacts: `internal/transport/pb/*.pb.go` коммитятся в репозиторий и входят в clean checkout.
+Обычная сборка не запускает генерацию. Канонические исходники:
+
 - `internal/transport/pb/user.proto`
 - `internal/transport/pb/job.proto`
 
-Нужны оба плагина:
+Текущие generated-файлы были получены этими версиями:
+- `protoc v7.34.0`
+- `protoc-gen-go v1.36.11`
+- `protoc-gen-go-grpc v1.6.1`
+
+Нужны оба Go-плагина:
 
 ```powershell
-go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
-go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11
+go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.1
 ```
 
 Генерация из корня репозитория:
@@ -163,6 +170,8 @@ protoc -I . --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_
 ```powershell
 go test ./...
 ```
+
+После изменений в `.proto` коммить вместе канонический `.proto` и обновлённые `*.pb.go`.
 
 ### Как использовать Range export endpoint
 
@@ -367,9 +376,61 @@ Readiness:
 ### Debug (только при `HTTP_DEBUG=true`)
 
 - `GET /debug/vars` — expvar (в т.ч. метрики HTTP)
+- `GET /debug/runtime` — компактный JSON snapshot по `runtime.MemStats` и выбранным `runtime/metrics`
 - `GET /debug/pprof/` и подпути — pprof
 
 Если `HTTP_DEBUG=false`, `/debug/*` вернёт `404`.
+
+### Runtime / GC диагностика
+
+`GOGC`, `GOMEMLIMIT` и `GODEBUG` не читаются через `config.Load()`: их забирает Go runtime при старте процесса.
+Для локального эксперимента удобно запустить сервис с in-memory storage и включённым debug router:
+
+```powershell
+$env:STORAGE_BACKEND="memory"
+$env:HTTP_DEBUG="true"
+$env:GOGC="100"
+$env:GOMEMLIMIT="256MiB"
+$env:GODEBUG="gctrace=1"
+go run .\cmd\api
+```
+
+Что смотреть:
+
+- `GOGC`: ниже значение -> чаще GC и меньше heap; выше значение -> реже GC и больше heap. Дефолт обычно `100`.
+- `debug.SetGCPercent(n)`: меняет тот же процент во время работы процесса и возвращает предыдущее значение.
+- `GOMEMLIMIT`: soft limit для памяти, управляемой Go runtime. Практическая модель: `MemStats.Sys - MemStats.HeapReleased`.
+- `debug.SetMemoryLimit(bytes)`: меняет тот же soft limit во время работы процесса и возвращает предыдущее значение.
+- `GODEBUG=gctrace=1`: печатает строки GC trace в stderr; полезно для учебного запуска и разового расследования, но шумно для обычного dev-loop.
+
+Быстрая проверка runtime snapshot:
+
+```powershell
+$Base = "http://localhost:8080"
+curl.exe -s -H "Authorization: Bearer $AdminToken" "$Base/debug/runtime"
+```
+
+Где что использовать:
+
+- `runtime.MemStats`: структурный snapshot аллокатора; в проекте доступен через `/debug/runtime`, а expvar также публикует `memstats` на `/debug/vars`.
+- `runtime/metrics`: стабильные именованные метрики runtime; в `/debug/runtime` вынесены ключи вроде `/gc/gogc:percent`, `/gc/gomemlimit:bytes`, `/gc/heap/goal:bytes`, `/memory/classes/total:bytes`.
+- `pprof`: отвечает не "сколько памяти", а "где выделяется память/CPU/горутины".
+- `net/http/pprof`: HTTP-обвязка над pprof; в этом проекте она смонтирована только под `/debug/pprof/*` и только при `HTTP_DEBUG=true`.
+
+Так как `/debug/*` закрыт JWT/RBAC, профили удобнее скачивать через `curl.exe`, а потом открывать локально:
+
+```powershell
+curl.exe -L -H "Authorization: Bearer $AdminToken" `
+  -o heap.pb.gz "$Base/debug/pprof/heap"
+go tool pprof -http=:0 .\heap.pb.gz
+
+curl.exe -L -H "Authorization: Bearer $AdminToken" `
+  -o cpu.pb.gz "$Base/debug/pprof/profile?seconds=30"
+go tool pprof -http=:0 .\cpu.pb.gz
+
+curl.exe -H "Authorization: Bearer $AdminToken" `
+  "$Base/debug/pprof/goroutine?debug=1"
+```
 
 ## Request ID
 
@@ -492,8 +553,9 @@ curl.exe -i -X POST http://localhost:8080/api/v1/users -H "Content-Type: applica
 ### Debug (после запуска с HTTP_DEBUG=true)
 
 ```powershell
-curl.exe -i http://localhost:8080/debug/vars
-curl.exe -i http://localhost:8080/debug/pprof/
+curl.exe -i -H "Authorization: Bearer $AdminToken" http://localhost:8080/debug/vars
+curl.exe -i -H "Authorization: Bearer $AdminToken" http://localhost:8080/debug/runtime
+curl.exe -i -H "Authorization: Bearer $AdminToken" http://localhost:8080/debug/pprof/
 ```
 
 ### Создать пользователя (v1, async job)
@@ -550,6 +612,12 @@ curl.exe -i ^
 
 ## Генерация `*.pb.go` из `.proto` на Windows
 
+Политика репозитория: `*.pb.go` в `internal/transport/pb/` коммитятся. Clean checkout должен собираться без
+предварительной генерации. Канонические исходники для регенерации:
+
+- `internal/transport/pb/user.proto`
+- `internal/transport/pb/job.proto`
+
 ### 1) Установить `protoc`
 
 **Вариант A — winget (рекомендуется):**
@@ -570,13 +638,16 @@ protoc --version
 protoc --version
 ```
 
-### 2) Установить Go-плагин (`protoc-gen-go`)
+Текущие committed generated-файлы соответствуют `protoc v7.34.0`.
+
+### 2) Установить Go-плагины
 
 ```powershell
-go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11
+go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.1
 ```
 
-Убедись, что директория с Go-бинарниками находится в `PATH`, иначе `protoc` не найдёт `protoc-gen-go`:
+Убедись, что директория с Go-бинарниками находится в `PATH`, иначе `protoc` не найдёт плагины:
 
 - `%GOBIN%`, если задан, иначе `%GOPATH%\bin`
 
@@ -584,6 +655,7 @@ go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
 
 ```powershell
 protoc-gen-go --version
+protoc-gen-go-grpc --version
 ```
 
 ### 3) Сгенерировать Go-код
@@ -591,23 +663,20 @@ protoc-gen-go --version
 Команду запускать из корня репозитория (там, где лежит `go.mod`):
 
 ```powershell
-protoc -I . --go_out=. --go_opt=paths=source_relative internal/transport/pb/user.proto
+protoc -I . --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_opt=paths=source_relative internal/transport/pb/user.proto internal/transport/pb/job.proto
 ```
 
 Что означают флаги:
 
 - `-I .` задаёт корень импорта/поиска `.proto` файлов.
 - `--go_out=.` записывает сгенерированные файлы в репозиторий.
-- `--go_opt=paths=source_relative` кладёт `user.pb.go` рядом с `user.proto` (в той же относительной папке).
+- `--go_opt=paths=source_relative` кладёт `*.pb.go` рядом с соответствующим `.proto`.
+- `--go-grpc_out=.` и `--go-grpc_opt=paths=source_relative` обновляют gRPC bindings для сервисов.
 
-### 4) Подтянуть зависимости модуля
+### 4) Зависимости модуля
 
-Если protobuf в репозитории подключаешь впервые, выполни:
-
-```powershell
-go get google.golang.org/protobuf@latest
-go mod tidy
-```
+Runtime-зависимости protobuf/gRPC уже зафиксированы в корневых `go.mod` и `go.sum`. Обычная регенерация не требует
+`go get`.
 
 ### 5) Быстрая проверка
 
@@ -626,7 +695,7 @@ curl -H "Accept: application/protobuf" http://localhost:8080/api/v1/users/1 --ou
 Если получаешь `200 OK` и `Content-Type: application/protobuf`, значит negotiation для protobuf работает.
 
 После любых изменений в `internal/transport/pb/*.proto` повторяй команду генерации из шага (3)
-и коммить обновлённые `*.pb.go` (если вы храните generated-файлы в git).
+и коммить обновлённые `*.pb.go`.
 
 ## Кэширование (ETag) для GET /api/v1/users/{id}
 

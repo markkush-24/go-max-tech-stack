@@ -89,6 +89,10 @@ func (s *APIServer) Run(ctx context.Context) error {
 	var wg sync.WaitGroup
 
 	wg.Add(1)
+
+	/*
+		Запускаем сервер из отдельной горутины в данном случае запускается сервер http
+	*/
 	go func() {
 		defer wg.Done()
 
@@ -99,6 +103,9 @@ func (s *APIServer) Run(ctx context.Context) error {
 		}
 	}()
 
+	/*
+		Запускаем сервер из отдельной горутины в данном случае запускается сервер https
+	*/
 	if httpsSrv != nil {
 		wg.Add(1)
 		go func() {

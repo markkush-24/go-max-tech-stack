@@ -1,6 +1,7 @@
 package router_test
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"pet-study/internal/middleware"
 	"pet-study/internal/requestid"
 	"pet-study/internal/router"
+	"pet-study/internal/runtimeinfo"
 	"pet-study/internal/security"
 	"pet-study/internal/testkit"
 )
@@ -116,5 +118,38 @@ func TestDebug_Admin_OK(t *testing.T) {
 	}
 	if resp.Header.Get(requestid.HeaderName) == "" {
 		t.Fatalf("missing %s", requestid.HeaderName)
+	}
+}
+
+func TestDebug_Runtime_Admin_OK(t *testing.T) {
+	srv := newDebugServer(t, security.Principal{UserID: 1, Role: security.RoleAdmin}, true)
+
+	req, err := http.NewRequest(http.MethodGet, srv.URL+"/debug/runtime", nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatalf("do request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d want=%d", resp.StatusCode, http.StatusOK)
+	}
+	if resp.Header.Get(requestid.HeaderName) == "" {
+		t.Fatalf("missing %s", requestid.HeaderName)
+	}
+
+	var snapshot runtimeinfo.Snapshot
+	if err := json.NewDecoder(resp.Body).Decode(&snapshot); err != nil {
+		t.Fatalf("decode snapshot: %v", err)
+	}
+	if snapshot.Go.Version == "" {
+		t.Fatalf("missing go version")
+	}
+	if _, ok := snapshot.Metrics["/gc/gogc:percent"]; !ok {
+		t.Fatalf("missing /gc/gogc:percent")
 	}
 }

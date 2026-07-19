@@ -4,11 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"pet-study/internal/apperr"
 	"pet-study/internal/entity"
 	"pet-study/internal/outbound/profile"
 	"pet-study/internal/queue"
 	"pet-study/internal/security"
-	"pet-study/internal/service"
 	"pet-study/internal/stream"
 	"strconv"
 	"time"
@@ -184,17 +184,17 @@ func MapError(r *http.Request, err error) MappedProblem {
 
 	// 5) Domain/service ошибки.
 	switch {
-	case errors.Is(err, service.ErrNotFound):
+	case errors.Is(err, apperr.ErrNotFound):
 		return MappedProblem{
 			Problem: Problem{Status: http.StatusNotFound, Detail: "not found"},
 		}
 
-	case errors.Is(err, service.ErrConflict):
+	case errors.Is(err, apperr.ErrConflict):
 		return MappedProblem{
 			Problem: Problem{Status: http.StatusConflict, Detail: "conflict"},
 		}
 
-	case errors.Is(err, service.ErrForbidden):
+	case errors.Is(err, apperr.ErrForbidden):
 		return MappedProblem{
 			Problem: Problem{Status: http.StatusForbidden, Detail: "forbidden"},
 		}

@@ -43,7 +43,14 @@ type StreamingConfig struct {
 }
 
 type DBConfig struct {
-	DSN string
+	DSN             string
+	StorageBackend  string
+	MaxOpenConns    int
+	MaxIdleConns    int
+	ConnMaxLifetime time.Duration
+	ConnMaxIdleTime time.Duration
+	QueryTimeout    time.Duration
+	PingTimeout     time.Duration
 }
 
 type WorkerPoolConfig struct {
@@ -162,7 +169,14 @@ func defaultConfig() Config {
 			},
 		},
 		DB: DBConfig{
-			DSN: "",
+			DSN:             "postgres://petstudy:petstudy@localhost:5432/petstudy?sslmode=disable",
+			StorageBackend:  "postgres",
+			MaxOpenConns:    10,
+			MaxIdleConns:    10,
+			ConnMaxLifetime: 30 * time.Minute,
+			ConnMaxIdleTime: 5 * time.Minute,
+			QueryTimeout:    3 * time.Second,
+			PingTimeout:     1 * time.Second,
 		},
 		Pool: WorkerPoolConfig{
 			Workers:   10,
@@ -362,6 +376,41 @@ func Load() (Config, error) {
 	}
 
 	cfg.DB.DSN, err = lookupStringNonEmpty("DB_DSN", cfg.DB.DSN)
+	if err != nil {
+		return Config{}, err
+	}
+
+	cfg.DB.StorageBackend, err = lookupStringNonEmpty("STORAGE_BACKEND", cfg.DB.StorageBackend)
+	if err != nil {
+		return Config{}, err
+	}
+
+	cfg.DB.MaxOpenConns, err = lookupIntNonNegative("DB_MAX_OPEN_CONNS", cfg.DB.MaxOpenConns)
+	if err != nil {
+		return Config{}, err
+	}
+
+	cfg.DB.MaxIdleConns, err = lookupIntNonNegative("DB_MAX_IDLE_CONNS", cfg.DB.MaxIdleConns)
+	if err != nil {
+		return Config{}, err
+	}
+
+	cfg.DB.ConnMaxLifetime, err = lookupDurationPositive("DB_CONN_MAX_LIFETIME", cfg.DB.ConnMaxLifetime)
+	if err != nil {
+		return Config{}, err
+	}
+
+	cfg.DB.ConnMaxIdleTime, err = lookupDurationPositive("DB_CONN_MAX_IDLE_TIME", cfg.DB.ConnMaxIdleTime)
+	if err != nil {
+		return Config{}, err
+	}
+
+	cfg.DB.QueryTimeout, err = lookupDurationPositive("DB_QUERY_TIMEOUT", cfg.DB.QueryTimeout)
+	if err != nil {
+		return Config{}, err
+	}
+
+	cfg.DB.PingTimeout, err = lookupDurationPositive("DB_PING_TIMEOUT", cfg.DB.PingTimeout)
 	if err != nil {
 		return Config{}, err
 	}

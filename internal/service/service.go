@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"pet-study/internal/apperr"
 	"pet-study/internal/entity"
 )
 
@@ -37,7 +38,7 @@ func (s *UserService) CreateUser(ctx context.Context, in *entity.CreateUserInput
 		return nil, fmt.Errorf("check email: %w", err)
 	}
 	if exists {
-		return nil, fmt.Errorf("email already exists: %w", ErrConflict)
+		return nil, fmt.Errorf("email already exists: %w", apperr.ErrConflict)
 	}
 
 	u := entity.User{Name: in.Name, Age: in.Age, Email: in.Email}

@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres:17
+    container_name: pet-study-postgres
+    environment:
+      POSTGRES_DB: petstudy
+      POSTGRES_USER: petstudy
+      POSTGRES_PASSWORD: petstudy
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:

@@ -4,12 +4,14 @@ import (
 	"expvar"
 	"net/http"
 	"net/http/pprof"
+	"pet-study/internal/runtimeinfo"
 )
 
 func NewDebugRouter() http.Handler {
 	mux := http.NewServeMux()
 
 	mux.Handle("GET /debug/vars", expvar.Handler())
+	mux.HandleFunc("GET /debug/runtime", runtimeinfo.Handler)
 
 	mux.HandleFunc("GET /debug/pprof/", pprof.Index)
 	mux.HandleFunc("GET /debug/pprof/cmdline", pprof.Cmdline)

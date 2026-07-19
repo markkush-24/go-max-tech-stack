@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
 	"pet-study/internal/api"
 	"pet-study/internal/config"
+	"pet-study/internal/db"
 	"pet-study/internal/health"
 	"pet-study/internal/httputils"
 	"pet-study/internal/metrics"
@@ -49,6 +51,13 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	var (
+		userRepository service.UserRepository
+		jobRepository  service.JobRepository
+		sqlDB          *db.DB
+		repoReady      func(context.Context) error
+	)
+
 	cfg, err := config.Load()
 	if err != nil {
 		return err
@@ -64,9 +73,38 @@ func run() error {
 
 	eventHub := stream.NewHub(cfg.Streaming.SubscriberBuffer)
 
+	switch cfg.DB.StorageBackend {
+	case "memory":
+		memUserRepo := userrepo.NewMemoryUserRepository()
+		memJobRepo := jobrepo.NewMemoryJobRepository()
+
+		userRepository = memUserRepo
+		jobRepository = memJobRepo
+		repoReady = memUserRepo.Ping
+
+	case "postgres":
+		sqlDB, err = db.Open(cfg.DB)
+		if err != nil {
+			return err
+		}
+		defer db.Close(sqlDB)
+
+		db.PublishStats(sqlDB.DB)
+
+		userRepository = userrepo.NewSQLX(sqlDB, cfg.DB.QueryTimeout)
+		jobRepository = jobrepo.NewSQLX(sqlDB, cfg.DB.QueryTimeout)
+
+		repoReady = func(ctx context.Context) error {
+			ctx, cancel := context.WithTimeout(ctx, cfg.DB.PingTimeout)
+			defer cancel()
+			return sqlDB.PingContext(ctx)
+		}
+
+	default:
+		return fmt.Errorf("unsupported storage backend: %s", cfg.DB.StorageBackend)
+	}
+
 	// Dependencies
-	userRepository := userrepo.NewMemoryUserRepository()
-	jobRepository := jobrepo.NewMemoryJobRepository()
 	userService := service.NewUserService(userRepository)
 	jobService := service.NewJobService(jobRepository)
 
@@ -123,8 +161,7 @@ func run() error {
 		}()
 		checkSlice = append(checkSlice, health.Check{Name: "grpc", Fn: grpcRuntime.Ready})
 	}
-
-	checkSlice = append(checkSlice, health.Check{Name: "repo", Fn: userRepository.Ping})
+	checkSlice = append(checkSlice, health.Check{Name: "db", Fn: repoReady})
 	checkSlice = append(checkSlice, health.Check{Name: "workerpool", Fn: pool.CheckRunning})
 	checkSlice = append(checkSlice, health.Check{Name: "streamHub", Fn: eventHub.Ready})
 	readiness := health.NewReadiness(checkSlice...)
@@ -194,8 +231,8 @@ func run() error {
 
 		dbg := httputils.HandlerToApp(rawDebug)
 
-		dbg = authAPI.Authenticate(dbg)
 		dbg = rbacAPI.Authorize(dbg)
+		dbg = authAPI.Authenticate(dbg)
 
 		debugRouter = dbg
 	}

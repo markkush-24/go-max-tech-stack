@@ -2,6 +2,7 @@ package userrepo
 
 import (
 	"context"
+	"pet-study/internal/apperr"
 	"pet-study/internal/entity"
 	"pet-study/internal/service"
 	"strings"
@@ -61,7 +62,7 @@ func (r *MemoryUserRepository) Save(ctx context.Context, user *entity.User) erro
 
 	for _, u := range r.users {
 		if strings.EqualFold(u.Email, user.Email) {
-			return service.ErrConflict
+			return apperr.ErrConflict
 		}
 	}
 

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"pet-study/internal/apperr"
 	"pet-study/internal/entity"
 	"pet-study/internal/httputils"
 	"pet-study/internal/metrics"
@@ -224,14 +225,14 @@ func ToJobProblem(err error) entity.JobProblem {
 	}
 
 	switch {
-	case errors.Is(err, service.ErrConflict):
+	case errors.Is(err, apperr.ErrConflict):
 		return entity.JobProblem{
 			Title:  "conflict",
 			Detail: "conflict",
 			Status: http.StatusConflict,
 		}
 
-	case errors.Is(err, service.ErrForbidden):
+	case errors.Is(err, apperr.ErrForbidden):
 		return entity.JobProblem{
 			Title:  "forbidden",
 			Detail: "forbidden",
