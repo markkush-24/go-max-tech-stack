@@ -16,7 +16,7 @@ Make a clean checkout buildable, testable and safe to hand to agents.
 | [TASK-004](tasks/TASK-004-archive-hygiene.md) | P2 | — | DONE | Define repository and archive hygiene rules |
 | [TASK-005](tasks/TASK-005-align-config-docs.md) | P1 | — | DONE | Align runtime defaults, README and actual route surface |
 | [TASK-006](tasks/TASK-006-isolate-config-tests.md) | P1 | — | DONE | Make configuration tests independent of host environment |
-| [TASK-007](tasks/TASK-007-target-toolchain-baseline.md) | P0 | TASK-003 | READY | Establish the Go 1.25.12 verification baseline |
+| [TASK-007](tasks/TASK-007-target-toolchain-baseline.md) | P0 | TASK-003 | DONE | Establish the Go 1.25.12 verification baseline |
 
 ## P1 — Critical correctness, lifecycle and security
 
@@ -24,14 +24,14 @@ Remove defects that can corrupt state, bypass security or make shutdown results 
 
 | Task | Priority | Dependencies | Initial status | Title |
 |---|---|---|---|---|
-| [TASK-008](tasks/TASK-008-fix-status-recorder.md) | P0 | TASK-007 | BLOCKED | Fix first-status-only response recording with regression tests |
-| [TASK-009](tasks/TASK-009-define-job-state-machine.md) | P0 | TASK-007 | BLOCKED | Define an explicit immutable-terminal Job state machine |
+| [TASK-008](tasks/TASK-008-fix-status-recorder.md) | P0 | TASK-007 | READY | Fix first-status-only response recording with regression tests |
+| [TASK-009](tasks/TASK-009-define-job-state-machine.md) | P0 | TASK-007 | READY | Define an explicit immutable-terminal Job state machine |
 | [TASK-010](tasks/TASK-010-enforce-job-cas.md) | P0 | TASK-009 | BLOCKED | Enforce Job CAS transitions in memory and PostgreSQL repositories |
 | [TASK-011](tasks/TASK-011-worker-generation-lifecycle.md) | P0 | TASK-009 | BLOCKED | Redesign WorkerPool around an immutable worker generation |
 | [TASK-012](tasks/TASK-012-worker-stop-repair.md) | P0 | TASK-011, TASK-010 | BLOCKED | Make worker Stop and terminal repair bounded and truly idempotent |
-| [TASK-013](tasks/TASK-013-queue-admission-contract.md) | P0 | TASK-007 | BLOCKED | Define deterministic queue cancellation and StopAccepting semantics |
+| [TASK-013](tasks/TASK-013-queue-admission-contract.md) | P0 | TASK-007 | READY | Define deterministic queue cancellation and StopAccepting semantics |
 | [TASK-014](tasks/TASK-014-async-event-topology.md) | P0 | TASK-010, TASK-013 | BLOCKED | Correct async transition ordering and use one Event Hub in testkit |
-| [TASK-015](tasks/TASK-015-grpc-runtime-owner.md) | P0 | TASK-007 | BLOCKED | Give the gRPC runtime single-start/single-stop ownership |
+| [TASK-015](tasks/TASK-015-grpc-runtime-owner.md) | P0 | TASK-007 | READY | Give the gRPC runtime single-start/single-stop ownership |
 | [TASK-016](tasks/TASK-016-application-supervisor.md) | P0 | TASK-011, TASK-015 | BLOCKED | Introduce one application supervisor for HTTP, HTTPS, gRPC, workers and streams |
 | [TASK-017](tasks/TASK-017-shutdown-budget-outcome.md) | P0 | TASK-016, TASK-012 | BLOCKED | Implement one global shutdown budget and truthful outcome model |
 | [TASK-018](tasks/TASK-018-grpc-security-decision.md) | P0 | TASK-005 | READY | Record the direct gRPC trust and exposure model |
@@ -129,7 +129,7 @@ Make contracts and high-risk behavior reproducibly verifiable in CI.
 |---|---|---|---|---|
 | [TASK-076](tasks/TASK-076-production-testkit.md) | P1 | TASK-016, TASK-014 | BLOCKED | Create production-faithful and explicitly scoped testkit fixtures |
 | [TASK-077](tasks/TASK-077-concurrency-regression-suite.md) | P0 | TASK-012, TASK-010, TASK-033 | BLOCKED | Commit regression tests for queue, worker, Job state and metrics races |
-| [TASK-078](tasks/TASK-078-postgres-integration-tests.md) | P0 | TASK-007 | BLOCKED | Add PostgreSQL repository, migration and transaction integration tests |
+| [TASK-078](tasks/TASK-078-postgres-integration-tests.md) | P0 | TASK-007 | READY | Add PostgreSQL repository, migration and transaction integration tests |
 | [TASK-079](tasks/TASK-079-openapi-spec.md) | P1 | TASK-063, TASK-065, TASK-070, TASK-066 | BLOCKED | Create the machine-readable OpenAPI source of truth |
 | [TASK-080](tasks/TASK-080-openapi-codegen-contract.md) | P1 | TASK-079, TASK-002 | BLOCKED | Add pinned OpenAPI validation, codegen and runtime conformance checks |
 | [TASK-081](tasks/TASK-081-fuzz-suite.md) | P1 | — | BACKLOG | Add fuzz/property tests for protocol parsers and state transitions |

@@ -161,3 +161,35 @@ Notes:
 Unlocked tasks:
 - none
 ```
+
+```text
+Task: TASK-007
+Accepted: 2026-07-19
+Commit: 915f8e8f
+Reviewer: Mark
+Verification:
+- go version: PASS; go1.25.12 windows/amd64
+- go test ./...: PASS
+- go vet ./...: PASS
+- go test -race ./...: FAIL; local CGO_ENABLED=0 rejects -race
+- CGO_ENABLED=1 go test -race ./...: FAIL; local runtime/cgo could not find gcc in PATH
+- go build -o .artifacts/pet-study.exe ./cmd/api: PASS
+- govulncheck -version: PASS; govulncheck@v1.1.4
+- govulncheck -mode binary .artifacts/pet-study.exe: PASS; 0 affected vulnerabilities
+- go build -o .artifacts/pet-study ./cmd/api: PASS
+- govulncheck -mode binary .artifacts/pet-study: PASS; 0 affected vulnerabilities
+- staticcheck ./...: PASS
+- gofmt -l cmd internal scripts: PASS
+- git diff --check: PASS
+Notes:
+- Updated the project verification baseline from go1.25.8 to go1.25.12 so binary govulncheck no longer fails on Go standard-library vulnerabilities.
+- Aligned go.mod, GitHub Actions and docs with the go1.25.12 baseline and recorded commands/results in docs/implementation/TOOLCHAIN_BASELINE.md.
+- Remaining limitation: local Windows race tests need a C compiler; scripts/run-govulncheck.ps1 still pins go1.25.8 because scripts/** was outside TASK-007 allowed scope.
+- Existing unrelated tools/tools.go deletion was outside TASK-007.
+Unlocked tasks:
+- TASK-008
+- TASK-009
+- TASK-013
+- TASK-015
+- TASK-078
+```
