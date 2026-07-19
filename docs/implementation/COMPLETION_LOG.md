@@ -140,3 +140,24 @@ Unlocked tasks:
 - TASK-018
 - TASK-022
 ```
+
+```text
+Task: TASK-006
+Accepted: 2026-07-19
+Commit: 5fb87cf8
+Reviewer: Mark
+Verification:
+- go test ./internal/config/...: PASS
+- hostile env + go test -count=20 ./internal/config/...: PASS
+- go test -count=20 ./internal/config/...: PASS
+- go test ./...: PASS
+- go test -shuffle=on -count=20 ./internal/config/...: PASS
+- git diff --check -- internal/config/config_test.go: PASS
+Notes:
+- Reworked config tests so each test controls the full config.Load env surface.
+- Added explicit default, valid-env and table-driven invalid-env coverage for duration, integer, URL, JWT, CORS, proxy, DB, TLS/gRPC and security-header validation.
+- Remaining limitation: no telemetry config exists in internal/config; hostile telemetry/runtime env values are covered as unrelated env, not parsed config.
+- Existing unrelated tools/tools.go deletion was outside TASK-006.
+Unlocked tasks:
+- none
+```
