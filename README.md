@@ -148,21 +148,20 @@ curl.exe -i ^
 - `internal/transport/pb/job.proto`
 
 Текущие generated-файлы были получены этими версиями:
-- `protoc v7.34.0`
+- `protoc --version`: `libprotoc 34.0` (generated header пишет `protoc v7.34.0`)
 - `protoc-gen-go v1.36.11`
 - `protoc-gen-go-grpc v1.6.1`
 
-Нужны оба Go-плагина:
+Версии Go-плагинов reviewable в `tools/go.mod`. Установка pinned tools:
 
 ```powershell
-go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11
-go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.1
+.\scripts\install-tools.ps1
 ```
 
 Генерация из корня репозитория:
 
 ```powershell
-protoc -I . --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_opt=paths=source_relative internal/transport/pb/user.proto internal/transport/pb/job.proto
+go generate ./...
 ```
 
 После регенерации:
@@ -220,9 +219,11 @@ curl.exe -i ^
 
 ## Tooling
 
-Для локальных quality checks в проекте зафиксированы версии:
+Для локальных quality checks и protobuf codegen в проекте зафиксированы версии:
 - `govulncheck`
 - `staticcheck`
+- `protoc-gen-go`
+- `protoc-gen-go-grpc`
 
 Установка на Windows PowerShell:
 
@@ -638,13 +639,13 @@ protoc --version
 protoc --version
 ```
 
-Текущие committed generated-файлы соответствуют `protoc v7.34.0`.
+Текущие committed generated-файлы соответствуют `protoc --version`: `libprotoc 34.0`
+(generated header пишет `protoc v7.34.0`).
 
-### 2) Установить Go-плагины
+### 2) Установить pinned Go-инструменты
 
 ```powershell
-go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11
-go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.1
+.\scripts\install-tools.ps1
 ```
 
 Убедись, что директория с Go-бинарниками находится в `PATH`, иначе `protoc` не найдёт плагины:
@@ -663,15 +664,11 @@ protoc-gen-go-grpc --version
 Команду запускать из корня репозитория (там, где лежит `go.mod`):
 
 ```powershell
-protoc -I . --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_opt=paths=source_relative internal/transport/pb/user.proto internal/transport/pb/job.proto
+go generate ./...
 ```
 
-Что означают флаги:
-
-- `-I .` задаёт корень импорта/поиска `.proto` файлов.
-- `--go_out=.` записывает сгенерированные файлы в репозиторий.
-- `--go_opt=paths=source_relative` кладёт `*.pb.go` рядом с соответствующим `.proto`.
-- `--go-grpc_out=.` и `--go-grpc_opt=paths=source_relative` обновляют gRPC bindings для сервисов.
+`go generate ./...` проверяет версии `protoc`, `protoc-gen-go` и `protoc-gen-go-grpc`, затем запускает единственную
+каноническую команду генерации для `internal/transport/pb/user.proto` и `internal/transport/pb/job.proto`.
 
 ### 4) Зависимости модуля
 

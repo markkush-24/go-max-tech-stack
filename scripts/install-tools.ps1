@@ -5,6 +5,54 @@ $ErrorActionPreference = "Stop"
 
 $toolsDir = Join-Path $PSScriptRoot "..\\tools"
 
+function Test-InstalledVersion {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Command,
+
+        [string[]]$Arguments = @(),
+
+        [Parameter(Mandatory = $true)]
+        [string]$Expected
+    )
+
+    if (-not (Get-Command $Command -ErrorAction SilentlyContinue)) {
+        return $false
+    }
+
+    $output = & $Command @Arguments 2>&1 | Out-String
+    if ($LASTEXITCODE -ne 0) {
+        return $false
+    }
+
+    return $output.Contains($Expected)
+}
+
+function Install-GoTool {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Module,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Version,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Command,
+
+        [string[]]$VersionArguments = @("--version"),
+
+        [Parameter(Mandatory = $true)]
+        [string]$ExpectedVersion
+    )
+
+    if (Test-InstalledVersion -Command $Command -Arguments $VersionArguments -Expected $ExpectedVersion) {
+        Write-Host ("Using pinned {0} {1}" -f $Command, $Version)
+        return
+    }
+
+    Invoke-Native "go" @("install", "$Module@$Version")
+}
+
 Push-Location $toolsDir
 try {
     $govulnModuleVersion = go list -m -f "{{.Version}}" golang.org/x/vuln
@@ -17,8 +65,21 @@ try {
         throw "Failed to resolve honnef.co/go/tools version from tools/go.mod"
     }
 
-    Invoke-Native "go" @("install", "golang.org/x/vuln/cmd/govulncheck@$govulnModuleVersion")
-    Invoke-Native "go" @("install", "honnef.co/go/tools/cmd/staticcheck@$staticcheckModuleVersion")
+    $protocGenGoModuleVersion = go list -m -f "{{.Version}}" google.golang.org/protobuf
+    if (-not $protocGenGoModuleVersion) {
+        throw "Failed to resolve google.golang.org/protobuf version from tools/go.mod"
+    }
+
+    $protocGenGoGRPCModuleVersion = go list -m -f "{{.Version}}" google.golang.org/grpc/cmd/protoc-gen-go-grpc
+    if (-not $protocGenGoGRPCModuleVersion) {
+        throw "Failed to resolve google.golang.org/grpc/cmd/protoc-gen-go-grpc version from tools/go.mod"
+    }
+
+    Install-GoTool -Module "golang.org/x/vuln/cmd/govulncheck" -Version $govulnModuleVersion -Command "govulncheck" -VersionArguments @("-version") -ExpectedVersion "govulncheck@$govulnModuleVersion"
+    Install-GoTool -Module "honnef.co/go/tools/cmd/staticcheck" -Version $staticcheckModuleVersion -Command "staticcheck" -VersionArguments @("-version") -ExpectedVersion $staticcheckModuleVersion
+    Install-GoTool -Module "google.golang.org/protobuf/cmd/protoc-gen-go" -Version $protocGenGoModuleVersion -Command "protoc-gen-go" -VersionArguments @("--version") -ExpectedVersion $protocGenGoModuleVersion
+    $protocGenGoGRPCVersionOutput = $protocGenGoGRPCModuleVersion -replace '^v', ''
+    Install-GoTool -Module "google.golang.org/grpc/cmd/protoc-gen-go-grpc" -Version $protocGenGoGRPCModuleVersion -Command "protoc-gen-go-grpc" -VersionArguments @("--version") -ExpectedVersion $protocGenGoGRPCVersionOutput
 }
 finally {
     Pop-Location
