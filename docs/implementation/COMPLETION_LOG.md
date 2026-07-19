@@ -119,3 +119,24 @@ Notes:
 Unlocked tasks:
 - none
 ```
+
+```text
+Task: TASK-005
+Accepted: 2026-07-19
+Commit: 70741d32
+Reviewer: Mark
+Verification:
+- go test ./internal/config/... ./internal/router/...: PASS
+- git grep -n "STORAGE_BACKEND\|DB_DSN" README.md internal/config: PASS
+- go test ./...: PASS
+- git diff --check -- README.md docs/security-policy.md internal/config/config_test.go internal/router/router_test.go: PASS
+Notes:
+- Documented the canonical default storage backend as STORAGE_BACKEND=postgres and aligned README DB_DSN/defaults with internal/config.
+- Updated documented HTTP routes and optional integration conditions to match current router/main behavior.
+- Added regression checks for default storage config and the absent v2 item route.
+- Remaining limitation: PostgreSQL schema application is still manual; cmd/api has no built-in migration runner.
+- Existing unrelated tools/tools.go deletion was outside TASK-005.
+Unlocked tasks:
+- TASK-018
+- TASK-022
+```

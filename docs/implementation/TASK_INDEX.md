@@ -14,7 +14,7 @@ Make a clean checkout buildable, testable and safe to hand to agents.
 | [TASK-002](tasks/TASK-002-pin-codegen-tools.md) | P0 | TASK-001 | DONE | Pin protobuf and quality-tool versions |
 | [TASK-003](tasks/TASK-003-clean-checkout-gate.md) | P0 | TASK-001, TASK-002 | DONE | Add clean-checkout and generated-drift verification |
 | [TASK-004](tasks/TASK-004-archive-hygiene.md) | P2 | — | DONE | Define repository and archive hygiene rules |
-| [TASK-005](tasks/TASK-005-align-config-docs.md) | P1 | — | BACKLOG | Align runtime defaults, README and actual route surface |
+| [TASK-005](tasks/TASK-005-align-config-docs.md) | P1 | — | DONE | Align runtime defaults, README and actual route surface |
 | [TASK-006](tasks/TASK-006-isolate-config-tests.md) | P1 | — | BACKLOG | Make configuration tests independent of host environment |
 | [TASK-007](tasks/TASK-007-target-toolchain-baseline.md) | P0 | TASK-003 | READY | Establish the Go 1.25.8 verification baseline |
 
@@ -34,11 +34,11 @@ Remove defects that can corrupt state, bypass security or make shutdown results 
 | [TASK-015](tasks/TASK-015-grpc-runtime-owner.md) | P0 | TASK-007 | BLOCKED | Give the gRPC runtime single-start/single-stop ownership |
 | [TASK-016](tasks/TASK-016-application-supervisor.md) | P0 | TASK-011, TASK-015 | BLOCKED | Introduce one application supervisor for HTTP, HTTPS, gRPC, workers and streams |
 | [TASK-017](tasks/TASK-017-shutdown-budget-outcome.md) | P0 | TASK-016, TASK-012 | BLOCKED | Implement one global shutdown budget and truthful outcome model |
-| [TASK-018](tasks/TASK-018-grpc-security-decision.md) | P0 | TASK-005 | BLOCKED | Record the direct gRPC trust and exposure model |
+| [TASK-018](tasks/TASK-018-grpc-security-decision.md) | P0 | TASK-005 | READY | Record the direct gRPC trust and exposure model |
 | [TASK-019](tasks/TASK-019-grpc-transport-security.md) | P0 | TASK-018, TASK-015 | BLOCKED | Add gRPC TLS or mTLS and environment-controlled reflection |
 | [TASK-020](tasks/TASK-020-grpc-authz.md) | P0 | TASK-018, TASK-019 | BLOCKED | Add gRPC authentication, RBAC and owner authorization |
 | [TASK-021](tasks/TASK-021-grpc-metadata-errors.md) | P0 | TASK-020 | BLOCKED | Normalize gRPC metadata, request ID, status codes and bridge timeout |
-| [TASK-022](tasks/TASK-022-production-security-guards.md) | P0 | TASK-005 | BLOCKED | Add environment guards for JWT, TLS, proxy and security-header defaults |
+| [TASK-022](tasks/TASK-022-production-security-guards.md) | P0 | TASK-005 | READY | Add environment guards for JWT, TLS, proxy and security-header defaults |
 
 ## P2 — Observability foundation
 
