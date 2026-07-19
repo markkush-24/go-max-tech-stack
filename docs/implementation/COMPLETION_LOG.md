@@ -66,3 +66,31 @@ Notes:
 Unlocked tasks:
 - TASK-003
 ```
+
+```text
+Task: TASK-003
+Accepted: 2026-07-19
+Commit: 5f37f34d
+Reviewer: Mark
+Verification:
+- go test ./scripts/...: PASS
+- .\scripts\check-format.ps1: PASS
+- go mod tidy: PASS
+- go generate ./...: PASS
+- go build ./cmd/api: PASS
+- go test ./...: PASS
+- go vet ./...: PASS
+- git clean -xfd && git reset --hard HEAD: PASS; run only in disposable clone
+- pwsh -File .\scripts\check-clean-checkout.ps1: PASS; run in disposable clone
+- missing generated file simulation in disposable clone: PASS; gate failed on untracked generated file
+- missing root tidy dependency simulation in disposable clone: PASS; gate failed on git diff --exit-code
+- git diff --exit-code: PASS; run in disposable clone
+- git diff --exit-code: FAIL; current workspace had unrelated tools/tools.go deletion outside TASK-003
+- git diff --cached --check: PASS
+Notes:
+- Added CI clean-checkout drift gate for tidy, generation, formatting, build, tests and clean-tree verification.
+- Added shared scripts/check-clean-checkout.ps1 and expanded format checks to scripts.
+- Remaining limitations: existing govulncheck behavior is unchanged; unrelated local tools/tools.go deletion was outside TASK-003.
+Unlocked tasks:
+- TASK-007
+```
