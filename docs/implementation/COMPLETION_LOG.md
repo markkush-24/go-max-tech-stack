@@ -351,3 +351,24 @@ Unlocked tasks:
 - TASK-010
 - TASK-011
 ```
+
+```text
+Task: TASK-010
+Accepted: 2026-07-20
+Commit: a9cf8383
+Reviewer: Mark
+Verification:
+- go test -count=1 -v ./internal/store/jobrepo/...: PASS
+- go test ./internal/store/jobrepo/...: PASS
+- go test -race ./internal/store/jobrepo/...: FAIL; local CGO_ENABLED=0 rejects -race
+- go test ./...: PASS
+- git diff --check: PASS
+- docker compose ps: FAIL; Docker daemon was not running
+Notes:
+- Enforced CAS Job transitions in memory repository under the write lock.
+- Added SQL status-guarded transition updates and conflict-vs-not-found handling for SQLX job repository.
+- Added shared memory and SQLX CAS tests for concurrent terminal transitions, immutable terminal states, missing jobs and FailActive terminal preservation.
+- Remaining limitations: local Windows race verification requires CGO plus a C compiler; live PostgreSQL integration was not run because Docker daemon was unavailable.
+Unlocked tasks:
+- none
+```

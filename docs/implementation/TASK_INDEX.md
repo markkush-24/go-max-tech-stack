@@ -37,7 +37,7 @@ Remove defects that can corrupt state, bypass security or make shutdown results 
 |---|---|---|---|---|
 | [TASK-008](tasks/TASK-008-fix-status-recorder.md) | P0 | TASK-007 | DONE | Fix first-status-only response recording with regression tests |
 | [TASK-009](tasks/TASK-009-define-job-state-machine.md) | P0 | TASK-007 | DONE | Define an explicit immutable-terminal Job state machine |
-| [TASK-010](tasks/TASK-010-enforce-job-cas.md) | P0 | TASK-009 | READY | Enforce Job CAS transitions in memory and PostgreSQL repositories |
+| [TASK-010](tasks/TASK-010-enforce-job-cas.md) | P0 | TASK-009 | DONE | Enforce Job CAS transitions in memory and PostgreSQL repositories |
 | [TASK-011](tasks/TASK-011-worker-generation-lifecycle.md) | P0 | TASK-009 | READY | Redesign WorkerPool around an immutable worker generation |
 | [TASK-012](tasks/TASK-012-worker-stop-repair.md) | P0 | TASK-011, TASK-010 | BLOCKED | Make worker Stop and terminal repair bounded and truly idempotent |
 | [TASK-013](tasks/TASK-013-queue-admission-contract.md) | P0 | TASK-007 | READY | Define deterministic queue cancellation and StopAccepting semantics |
