@@ -278,3 +278,34 @@ Notes:
 Unlocked tasks:
 - none
 ```
+
+```text
+Task: P0-CORR-004
+Accepted: 2026-07-20
+Commit: a80f307a
+Reviewer: Mark
+Verification:
+- go test -count=1 -run ExportArchive -v ./scripts: PASS
+- go test -count=1 ./internal/config/...: PASS
+- go test ./scripts/... ./internal/config/...: PASS
+- go test ./...: PASS
+- go vet ./...: PASS
+- go test -race ./...: FAIL; local CGO_ENABLED=0 rejects -race
+- CGO_ENABLED=1 go test -race ./...: FAIL; local runtime/cgo could not find gcc in PATH
+- pwsh -File ./scripts/check-clean-checkout.ps1: FAIL; active workspace had the intentional uncommitted correction diff
+- pwsh -File ./scripts/check-clean-checkout.ps1: PASS; run in a disposable clean clone with a temporary correction commit
+- git diff --check: PASS
+- git status --short: PASS
+- staticcheck ./...: PASS
+- go build -o .artifacts/pet-study ./cmd/api: PASS
+- govulncheck -mode binary .artifacts/pet-study: PASS
+- go test -count=1 -run TestReadmeConfigEnvironmentTableExactSet -v ./internal/config: PASS
+- go test -count=1 -run TestCleanCheckoutGateFailsWhenToolsModuleDrifts -v ./scripts: PASS
+- README mutation scenarios in C:\tmp: PASS; missing, extra and duplicate ENV rows failed as expected
+Notes:
+- Added committed regression guards for archive export success, reproducibility, blocked paths, private-key marker rejection and failed-publish atomicity.
+- Added README/config exact-set validation for the 58-key config environment table and corrected PowerShell examples that used CMD caret continuations.
+- Remaining limitation: local Windows race tests require CGO plus a C compiler; clean-checkout gate only passes from a committed clean tree, so it was verified in a disposable clone.
+Unlocked tasks:
+- none
+```
