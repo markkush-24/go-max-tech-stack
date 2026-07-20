@@ -14,11 +14,30 @@ func newStatusRecorder(w http.ResponseWriter) *statusRecorder {
 func (sr *statusRecorder) Status() int { return sr.status }
 func (sr *statusRecorder) Bytes() int  { return sr.bytes }
 
-// Пробрасываем опциональные интерфейсы (на будущее; не мешает сейчас).
+func (sr *statusRecorder) Unwrap() http.ResponseWriter {
+	return sr.ResponseWriter
+}
+
+// Пробрасываем опциональные интерфейсы для streaming/delegation.
 func (sr *statusRecorder) Flush() {
-	if f, ok := sr.ResponseWriter.(http.Flusher); ok {
-		f.Flush()
+	_ = sr.FlushError()
+}
+
+func (sr *statusRecorder) FlushError() error {
+	if f, ok := sr.ResponseWriter.(interface{ FlushError() error }); ok {
+		if !sr.wroteHeader {
+			sr.WriteHeader(http.StatusOK)
+		}
+		return f.FlushError()
 	}
+	if f, ok := sr.ResponseWriter.(http.Flusher); ok {
+		if !sr.wroteHeader {
+			sr.WriteHeader(http.StatusOK)
+		}
+		f.Flush()
+		return nil
+	}
+	return http.ErrNotSupported
 }
 
 func (sr *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {

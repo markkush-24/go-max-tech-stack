@@ -1,9 +1,11 @@
 package middleware_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"expvar"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"pet-study/internal/metrics"
@@ -155,5 +157,56 @@ func TestMetrics_SkipsDebugPaths(t *testing.T) {
 	afterReq := expvarMapGetInt(t, "http_requests_total", reqKey)
 	if afterReq != beforeReq {
 		t.Fatalf("debug endpoints must be skipped by metrics: before=%d after=%d", beforeReq, afterReq)
+	}
+}
+
+func TestMetricsAndLogger_RecordFirstWireStatus(t *testing.T) {
+	var logBuf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logBuf, &slog.HandlerOptions{})))
+	t.Cleanup(func() {
+		slog.SetDefault(prev)
+	})
+
+	m := metrics.DefaultHTTP()
+	pat := fmt.Sprintf("/test-first-status/%d", time.Now().UnixNano())
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET "+pat, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("created"))
+	})
+
+	h := middleware.Metrics(m)(middleware.Logger(mux))
+
+	reqKeyCreated := "GET|" + pat + "|201"
+	reqKeyInternalError := "GET|" + pat + "|500"
+	beforeCreated := expvarMapGetInt(t, "http_requests_total", reqKeyCreated)
+	beforeInternalError := expvarMapGetInt(t, "http_requests_total", reqKeyInternalError)
+
+	req := httptest.NewRequest(http.MethodGet, "http://example.com"+pat, nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("wire status=%d want=%d", rec.Code, http.StatusCreated)
+	}
+
+	logText := logBuf.String()
+	if !strings.Contains(logText, "status=201") {
+		t.Fatalf("logs=%q must record first wire status 201", logText)
+	}
+	if strings.Contains(logText, "status=500") {
+		t.Fatalf("logs=%q must not record overwritten status 500", logText)
+	}
+
+	afterCreated := expvarMapGetInt(t, "http_requests_total", reqKeyCreated)
+	afterInternalError := expvarMapGetInt(t, "http_requests_total", reqKeyInternalError)
+	if afterCreated != beforeCreated+1 {
+		t.Fatalf("requests_total[%q]=%d want=%d", reqKeyCreated, afterCreated, beforeCreated+1)
+	}
+	if afterInternalError != beforeInternalError {
+		t.Fatalf("requests_total[%q]=%d want unchanged %d", reqKeyInternalError, afterInternalError, beforeInternalError)
 	}
 }

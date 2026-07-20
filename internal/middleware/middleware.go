@@ -12,18 +12,23 @@ import (
 
 type statusRecorder struct {
 	http.ResponseWriter
-	status int
-	bytes  int
+	status      int
+	bytes       int
+	wroteHeader bool
 }
 
 func (w *statusRecorder) WriteHeader(code int) {
+	if w.wroteHeader {
+		return
+	}
+	w.wroteHeader = true
 	w.status = code
 	w.ResponseWriter.WriteHeader(code)
 }
 
 func (w *statusRecorder) Write(p []byte) (int, error) {
-	if w.status == 0 {
-		w.status = http.StatusOK
+	if !w.wroteHeader {
+		w.WriteHeader(http.StatusOK)
 	}
 	n, err := w.ResponseWriter.Write(p)
 	w.bytes += n
