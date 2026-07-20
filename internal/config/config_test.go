@@ -3,7 +3,10 @@ package config
 import (
 	"net/http"
 	"os"
+	"path/filepath"
 	"reflect"
+	"regexp"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -459,6 +462,18 @@ func TestLoad_HostileUnrelatedEnvironment(t *testing.T) {
 	}
 }
 
+func TestReadmeConfigEnvironmentTableExactSet(t *testing.T) {
+	root := findRepoRoot(t)
+	readmeBytes, err := os.ReadFile(filepath.Join(root, "README.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	readmeKeys := readmeConfigEnvironmentKeys(t, string(readmeBytes))
+	wantKeys := validConfigKeys()
+	assertExactEnvKeySet(t, readmeKeys, wantKeys)
+}
+
 func setValidConfigEnv(t *testing.T) {
 	t.Helper()
 
@@ -493,4 +508,110 @@ func clearConfigEnv(t *testing.T) {
 			}
 		}
 	})
+}
+
+func findRepoRoot(t *testing.T) string {
+	t.Helper()
+
+	dir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			if _, err := os.Stat(filepath.Join(dir, "README.md")); err == nil {
+				return dir
+			}
+		}
+
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			t.Fatal("repository root with go.mod and README.md was not found")
+		}
+		dir = parent
+	}
+}
+
+func validConfigKeys() []string {
+	keys := make([]string, 0, len(validConfigEnv))
+	for _, kv := range validConfigEnv {
+		keys = append(keys, kv.key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func readmeConfigEnvironmentKeys(t *testing.T, readme string) []string {
+	t.Helper()
+
+	const marker = "validConfigEnv"
+	markerIndex := strings.Index(readme, marker)
+	if markerIndex == -1 {
+		t.Fatalf("README config table marker %q was not found", marker)
+	}
+
+	rowRE := regexp.MustCompile("^\\|\\s*`([A-Z0-9_]+)`\\s*\\|")
+	var keys []string
+	inTable := false
+	for _, line := range strings.Split(readme[markerIndex:], "\n") {
+		if strings.HasPrefix(line, "|") {
+			inTable = true
+			if match := rowRE.FindStringSubmatch(line); match != nil {
+				keys = append(keys, match[1])
+			}
+			continue
+		}
+
+		if inTable {
+			break
+		}
+	}
+
+	if len(keys) == 0 {
+		t.Fatal("README config table has no environment rows")
+	}
+	return keys
+}
+
+func assertExactEnvKeySet(t *testing.T, got []string, want []string) {
+	t.Helper()
+
+	gotCounts := countStrings(got)
+	wantCounts := countStrings(want)
+	var failures []string
+
+	for key, count := range gotCounts {
+		if count > 1 {
+			failures = append(failures, "duplicate README row: "+key)
+		}
+	}
+	for key, count := range wantCounts {
+		if count > 1 {
+			failures = append(failures, "duplicate validConfigEnv key: "+key)
+		}
+	}
+	for key := range wantCounts {
+		if gotCounts[key] == 0 {
+			failures = append(failures, "missing README row: "+key)
+		}
+	}
+	for key := range gotCounts {
+		if wantCounts[key] == 0 {
+			failures = append(failures, "extra README row: "+key)
+		}
+	}
+
+	if len(failures) > 0 {
+		sort.Strings(failures)
+		t.Fatalf("README config environment table does not match validConfigEnv:\n%s", strings.Join(failures, "\n"))
+	}
+}
+
+func countStrings(values []string) map[string]int {
+	counts := make(map[string]int, len(values))
+	for _, value := range values {
+		counts[value]++
+	}
+	return counts
 }

@@ -145,8 +145,8 @@ Endpoint:
 Пример (PowerShell, с bearer token):
 
 ```powershell
-curl.exe -N -i ^
-  -H "Authorization: Bearer $AdminToken" ^
+curl.exe -N -i `
+  -H "Authorization: Bearer $AdminToken" `
   http://localhost:8080/api/v1/jobs/1/events
 ```
 
@@ -186,8 +186,8 @@ HTTP → gRPC bridge demo endpoint:
 Пример:
 
 ```powershell
-curl.exe -i ^
-  -H "Authorization: Bearer $AdminToken" ^
+curl.exe -i `
+  -H "Authorization: Bearer $AdminToken" `
   http://localhost:8080/api/v1/jobs/1/grpc
 ```
 
@@ -240,17 +240,17 @@ Endpoint:
 Полный ответ:
 
 ```powershell
-curl.exe -i ^
-  -H "Authorization: Bearer $AdminToken" ^
+curl.exe -i `
+  -H "Authorization: Bearer $AdminToken" `
   http://localhost:8080/api/v1/users/1/export
 ```
 
 Partial download:
 
 ```powershell
-curl.exe -i ^
-  -H "Authorization: Bearer $AdminToken" ^
-  -H "Range: bytes=0-9" ^
+curl.exe -i `
+  -H "Authorization: Bearer $AdminToken" `
+  -H "Range: bytes=0-9" `
   http://localhost:8080/api/v1/users/1/export
 ```
 
@@ -720,29 +720,29 @@ curl.exe -i `
 ### SSE stream по job
 
 ```powershell
-curl.exe -N -i ^
-  -H "Authorization: Bearer $AdminToken" ^
+curl.exe -N -i `
+  -H "Authorization: Bearer $AdminToken" `
   http://localhost:8080/api/v1/jobs/1/events
 ```
 
 ### HTTP -> gRPC bridge
 
 ```powershell
-curl.exe -i ^
-  -H "Authorization: Bearer $AdminToken" ^
+curl.exe -i `
+  -H "Authorization: Bearer $AdminToken" `
   http://localhost:8080/api/v1/jobs/1/grpc
 ```
 
 ### Range export
 
 ```powershell
-curl.exe -i ^
-  -H "Authorization: Bearer $AdminToken" ^
+curl.exe -i `
+  -H "Authorization: Bearer $AdminToken" `
   http://localhost:8080/api/v1/users/1/export
 
-curl.exe -i ^
-  -H "Authorization: Bearer $AdminToken" ^
-  -H "Range: bytes=0-9" ^
+curl.exe -i `
+  -H "Authorization: Bearer $AdminToken" `
+  -H "Range: bytes=0-9" `
   http://localhost:8080/api/v1/users/1/export
 ```
 
