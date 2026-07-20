@@ -88,11 +88,11 @@ func TestExportArchiveRejectsPrivateKeyMarkersWithoutPublishing(t *testing.T) {
 	}{
 		{
 			name:    "small marker",
-			content: "-----BEGIN RSA PRIVATE KEY-----\nredacted\n",
+			content: privateKeyMarker("RSA") + "\nredacted\n",
 		},
 		{
 			name:    "large marker",
-			content: strings.Repeat("A", 1<<20+64) + "\n-----BEGIN OPENSSH PRIVATE KEY-----\nredacted\n",
+			content: strings.Repeat("A", 1<<20+64) + "\n" + privateKeyMarker("OPENSSH") + "\nredacted\n",
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -124,7 +124,7 @@ func TestExportArchiveFailedForcePreservesExistingOutput(t *testing.T) {
 	fixture.requireExportSuccess("-OutputPath", ".artifacts/release.zip", "-Force")
 	before := sha256File(t, outputPath)
 
-	fixture.writeFile("docs/secret.txt", "-----BEGIN PRIVATE KEY-----\nredacted\n")
+	fixture.writeFile("docs/secret.txt", privateKeyMarker("")+"\nredacted\n")
 	fixture.commit("invalid tree")
 
 	output, err := fixture.runExport("-OutputPath", ".artifacts/release.zip", "-Force")
@@ -267,4 +267,11 @@ func assertFileMissing(t *testing.T, path string) {
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatalf("expected %s to be absent, stat err=%v", path, err)
 	}
+}
+
+func privateKeyMarker(kind string) string {
+	if kind == "" {
+		return "-----BEGIN " + "PRIVATE KEY-----"
+	}
+	return "-----BEGIN " + kind + " PRIVATE KEY-----"
 }
