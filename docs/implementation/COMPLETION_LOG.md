@@ -372,3 +372,27 @@ Notes:
 Unlocked tasks:
 - none
 ```
+
+```text
+Task: TASK-011
+Accepted: 2026-07-20
+Commit: 9ed6f131
+Reviewer: Mark
+Verification:
+- go test -count=1 -v ./internal/workerpool/...: PASS
+- go test ./internal/workerpool/...: PASS
+- go test -race ./internal/workerpool/...: FAIL; local CGO_ENABLED=0 rejects -race
+- CGO_ENABLED=1 go test -race ./internal/workerpool/...: FAIL; local runtime/cgo could not find gcc in PATH
+- go test ./...: PASS
+- go vet ./internal/workerpool/...: PASS
+- git diff --check HEAD: PASS
+- git diff --cached --check: PASS
+Notes:
+- Reworked WorkerPool lifecycle around immutable per-start generations.
+- Removed shared mutable worker context and pool-level WaitGroup reuse.
+- Prevented restart while a prior generation is still stopping after a timed-out Stop.
+- Added regression tests for timeout-stop, fresh generation restart, concurrent Stop and idempotent concurrent Start.
+- Remaining limitation: local Windows race verification requires CGO plus a C compiler.
+Unlocked tasks:
+- TASK-012
+```
