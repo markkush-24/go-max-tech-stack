@@ -17,6 +17,7 @@ import (
 )
 
 var ErrPoolNotRunning = errors.New("worker pool not running")
+var ErrPoolStopping = errors.New("worker pool stopping")
 
 // WorkerPool — lifecycle-компонент приложения для async jobs.
 // Он хранит внутренний context только для времени жизни воркеров:
@@ -29,12 +30,18 @@ type WorkerPool struct {
 	jobsObserver metrics.JobsObserver
 	eventHub     *stream.Hub
 
-	mu      sync.RWMutex
-	running bool
+	mu         sync.RWMutex
+	generation *workerGeneration
+	stopping   bool
+}
 
+type workerGeneration struct {
 	ctx    context.Context
 	cancel context.CancelFunc
-	wg     sync.WaitGroup
+	done   chan struct{}
+
+	stopOnce sync.Once
+	stopErr  error
 }
 
 func NewWorkerPool(
@@ -64,42 +71,57 @@ func (wp *WorkerPool) Start(ctx context.Context, workers int) error {
 	wp.mu.Lock()
 	defer wp.mu.Unlock()
 
-	if wp.running {
+	wp.settleStoppedLocked()
+
+	if wp.generation != nil {
+		if wp.stopping {
+			return ErrPoolStopping
+		}
 		return nil
 	}
 
-	wp.ctx, wp.cancel = context.WithCancel(ctx)
-	wp.running = true
+	genCtx, cancel := context.WithCancel(ctx)
+	gen := &workerGeneration{
+		ctx:    genCtx,
+		cancel: cancel,
+		done:   make(chan struct{}),
+	}
+	wp.generation = gen
+	wp.stopping = false
+
+	var wg sync.WaitGroup
 
 	for i := 0; i < workers; i++ {
-		wp.wg.Add(1)
-		go wp.workerLoop()
+		wg.Add(1)
+		go wp.workerLoop(gen.ctx, &wg)
 	}
+
+	go func() {
+		wg.Wait()
+		close(gen.done)
+	}()
 
 	return nil
 }
 
 func (wp *WorkerPool) Stop(ctx context.Context) error {
 	wp.mu.Lock()
-	if !wp.running {
+	gen := wp.generation
+	if gen == nil {
 		wp.mu.Unlock()
-		return wp.failActiveOnShutdown(ctx)
+		return nil
 	}
-	cancel := wp.cancel
-	wp.running = false
+	firstStop := !wp.stopping
+	wp.stopping = true
 	wp.mu.Unlock()
 
-	cancel()
-
-	done := make(chan struct{})
-	go func() {
-		wp.wg.Wait()
-		close(done)
-	}()
+	if firstStop {
+		gen.cancel()
+	}
 
 	select {
-	case <-done:
-		return wp.failActiveOnShutdown(ctx)
+	case <-gen.done:
+		return wp.completeStop(ctx, gen)
 	case <-ctx.Done():
 		return ctx.Err()
 	}
@@ -107,31 +129,70 @@ func (wp *WorkerPool) Stop(ctx context.Context) error {
 
 func (wp *WorkerPool) IsRunning() bool {
 	wp.mu.RLock()
-	defer wp.mu.RUnlock()
-	return wp.running
+	gen := wp.generation
+	stopping := wp.stopping
+	wp.mu.RUnlock()
+
+	if gen == nil || stopping {
+		return false
+	}
+
+	select {
+	case <-gen.done:
+		return false
+	default:
+		return true
+	}
 }
 
-func (wp *WorkerPool) workerLoop() {
-	defer wp.wg.Done()
+func (wp *WorkerPool) settleStoppedLocked() {
+	if wp.generation == nil {
+		return
+	}
+
+	select {
+	case <-wp.generation.done:
+		wp.generation = nil
+		wp.stopping = false
+	default:
+	}
+}
+
+func (wp *WorkerPool) completeStop(ctx context.Context, gen *workerGeneration) error {
+	wp.mu.Lock()
+	if wp.generation == gen {
+		wp.generation = nil
+		wp.stopping = false
+	}
+	wp.mu.Unlock()
+
+	gen.stopOnce.Do(func() {
+		gen.stopErr = wp.failActiveOnShutdown(ctx)
+	})
+	return gen.stopErr
+}
+
+func (wp *WorkerPool) workerLoop(ctx context.Context, wg *sync.WaitGroup) {
+	defer wg.Done()
 	logger := slog.Default().With("component", "worker_pool")
 
 	ch := wp.queue.Chan()
 
 	for {
 		select {
-		case <-wp.ctx.Done():
+		case <-ctx.Done():
 			return
 		case item, ok := <-ch:
 			if !ok {
 				return
 			}
-			if wp.ctx.Err() != nil {
+			if ctx.Err() != nil {
 				if err := wp.markJobFailed(item.JobID, service.ShutdownJobProblem()); err != nil {
 					logger.Error("failed to mark job as failed during shutdown", "job_id", item.JobID, "err", err)
 				}
 				return
 			}
-			err := wp.jobService.SetRunning(wp.ctx, item.JobID)
+			err := wp.jobService.SetRunning(ctx, item.JobID)
 			if err != nil {
 				if errors.Is(err, entity.ErrJobNotFound) {
 					logger.Warn("job not found during transition to running", "job_id", item.JobID)
@@ -149,7 +210,7 @@ func (wp *WorkerPool) workerLoop() {
 			})
 			start := time.Now()
 
-			user, userErr := wp.userService.CreateUser(wp.ctx, &item.Payload)
+			user, userErr := wp.userService.CreateUser(ctx, &item.Payload)
 			if userErr != nil {
 				if err := wp.markJobFailed(item.JobID, ToJobProblem(userErr)); err != nil {
 					logger.Error("failed to mark job as failed", "job_id", item.JobID, "err", err)
@@ -161,7 +222,7 @@ func (wp *WorkerPool) workerLoop() {
 			}
 
 			res := entity.JobResult{UserID: int64(user.ID)}
-			if err := wp.jobService.SetSucceeded(wp.ctx, item.JobID, res); err != nil {
+			if err := wp.jobService.SetSucceeded(ctx, item.JobID, res); err != nil {
 				logger.Error("failed to mark job as succeeded", "job_id", item.JobID, "err", err)
 				continue
 			}
