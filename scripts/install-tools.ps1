@@ -5,6 +5,31 @@ $ErrorActionPreference = "Stop"
 
 $toolsDir = Join-Path $PSScriptRoot "..\\tools"
 
+function ConvertTo-NormalizedVersionToken {
+    param([Parameter(Mandatory = $true)][string]$Token)
+
+    return ($Token.Trim() -replace '^[\s"''`()\[\]{}<>,;]+|[\s"''`()\[\]{}<>,;]+$', '')
+}
+
+function Test-VersionOutputToken {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Output,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Expected
+    )
+
+    $expectedToken = ConvertTo-NormalizedVersionToken $Expected
+    foreach ($token in ($Output -split '\s+')) {
+        if ((ConvertTo-NormalizedVersionToken $token) -eq $expectedToken) {
+            return $true
+        }
+    }
+
+    return $false
+}
+
 function Test-InstalledVersion {
     param(
         [Parameter(Mandatory = $true)]
@@ -25,7 +50,7 @@ function Test-InstalledVersion {
         return $false
     }
 
-    return $output.Contains($Expected)
+    return Test-VersionOutputToken -Output $output -Expected $Expected
 }
 
 function Install-GoTool {
@@ -51,6 +76,11 @@ function Install-GoTool {
     }
 
     Invoke-Native "go" @("install", "$Module@$Version")
+    if (-not (Test-InstalledVersion -Command $Command -Arguments $VersionArguments -Expected $ExpectedVersion)) {
+        throw ("Installed {0}@{1}, but {2} did not report exact version token {3}" -f $Module, $Version, $Command, $ExpectedVersion)
+    }
+
+    Write-Host ("Installed pinned {0} {1}" -f $Command, $Version)
 }
 
 Push-Location $toolsDir

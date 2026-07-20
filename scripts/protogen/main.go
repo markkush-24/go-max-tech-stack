@@ -29,10 +29,10 @@ func main() {
 	if err := requireExactVersion("protoc", []string{"--version"}, requiredProtocVersion); err != nil {
 		fail(err)
 	}
-	if err := requireVersionPart("protoc-gen-go", []string{"--version"}, requiredProtocGenGoVersion); err != nil {
+	if err := requireVersionToken("protoc-gen-go", []string{"--version"}, requiredProtocGenGoVersion); err != nil {
 		fail(err)
 	}
-	if err := requireVersionPart("protoc-gen-go-grpc", []string{"--version"}, requiredProtocGenGRPCVersion); err != nil {
+	if err := requireVersionToken("protoc-gen-go-grpc", []string{"--version"}, requiredProtocGenGRPCVersion); err != nil {
 		fail(err)
 	}
 
@@ -83,15 +83,29 @@ func requireExactVersion(command string, args []string, want string) error {
 	return nil
 }
 
-func requireVersionPart(command string, args []string, want string) error {
+func requireVersionToken(command string, args []string, want string) error {
 	got, err := commandOutput(command, args...)
 	if err != nil {
 		return err
 	}
-	if !strings.Contains(got, want) {
-		return fmt.Errorf("%s version %q, want it to contain %q", command, got, want)
+	if !hasNormalizedVersionToken(got, want) {
+		return fmt.Errorf("%s version %q, want exact token %q", command, got, want)
 	}
 	return nil
+}
+
+func hasNormalizedVersionToken(output string, want string) bool {
+	want = normalizeVersionToken(want)
+	for _, token := range strings.Fields(output) {
+		if normalizeVersionToken(token) == want {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeVersionToken(token string) string {
+	return strings.Trim(token, " \t\r\n\"'`()[]{}<>,;")
 }
 
 func commandOutput(command string, args ...string) (string, error) {

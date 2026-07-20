@@ -176,6 +176,9 @@ curl.exe -i ^
 .\scripts\install-tools.ps1
 ```
 
+Скрипт установки принимает только точное совпадение version token. Near-match версии вроде `v1.36.110`
+для ожидаемой `v1.36.11` или `1.6.10` для ожидаемой `1.6.1` отклоняются.
+
 Генерация из корня репозитория:
 
 ```powershell
@@ -268,7 +271,7 @@ CI:
 
 - GitHub Actions workflow: `.github/workflows/ci.yml`
 - Проверки в CI: `gofmt`, `go test`, `go vet`, `go test -race`, `staticcheck`, `govulncheck -mode binary`
-- Vulnerability scan собирает binary на patched toolchain `go1.25.12`
+- Локальный и CI vulnerability scan собирают binary toolchain baseline `go1.25.12`; `run-govulncheck.ps1` не задаёт отдельный `GOTOOLCHAIN`
 
 ## Repository archive / export
 

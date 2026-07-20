@@ -12,6 +12,7 @@ if ($IsWindows) {
 Push-Location $repoRoot
 try {
     Invoke-Native "go" @("mod", "tidy")
+    Invoke-Native "go" @("-C", "tools", "mod", "tidy")
     Invoke-Native "go" @("generate", "./...")
     Invoke-Native "gofmt" @("-w", "cmd", "internal", "scripts")
     Invoke-Native "go" @("build", "-o", $binaryPath, "./cmd/api")
