@@ -226,3 +226,26 @@ Unlocked tasks:
 - P0-CORR-002
 - P0-CORR-003
 ```
+
+```text
+Task: P0-CORR-002
+Accepted: 2026-07-20
+Commit: 47e054c1
+Reviewer: Mark
+Verification:
+- go test -run ExportArchive -v ./scripts: PASS
+- pwsh -File .\scripts\export-archive.ps1 -Force: PASS
+- go test ./scripts/...: PASS
+- go test ./...: PASS
+- git diff --check: PASS
+- git check-ignore -v secret.ppk secret.p12 secret.pfx project.iml .DS_Store Thumbs.db notes.swp: PASS
+- intermediate go test ./scripts/...: FAIL then fixed; exposed top-level dotfile normalization issue for .DS_Store
+- intermediate pwsh -File .\scripts\export-archive.ps1 -Force: FAIL then fixed; File.Replace needed explicit backup path
+Notes:
+- Export now writes to a temporary ZIP, validates paths/content, then publishes the final archive only after validation succeeds.
+- Blocked archive paths now include *.ppk, *.p12, *.pfx, *.iml, .DS_Store, Thumbs.db and *.swp in addition to the existing local artifact rules.
+- Large text entries are scanned incrementally for PEM private-key markers instead of being skipped over 1 MiB.
+- Remaining limitation: this is targeted archive hardening, not a generic secret scanner.
+Unlocked tasks:
+- none
+```
