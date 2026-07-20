@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"net/http"
+	"pet-study/internal/apperr"
 	"pet-study/internal/entity"
 )
 
@@ -30,17 +31,40 @@ func (s *JobService) GetByID(ctx context.Context, id int64) (*entity.Job, error)
 }
 
 func (s *JobService) SetRunning(ctx context.Context, id int64) error {
-	return s.repo.SetRunning(ctx, id)
+	return s.transition(ctx, id, entity.JobTransitionStart, func() error {
+		return s.repo.SetRunning(ctx, id)
+	})
 }
 func (s *JobService) SetSucceeded(ctx context.Context, id int64, res entity.JobResult) error {
-	return s.repo.SetSucceeded(ctx, id, res)
+	return s.transition(ctx, id, entity.JobTransitionSucceed, func() error {
+		return s.repo.SetSucceeded(ctx, id, res)
+	})
 }
 func (s *JobService) SetFailed(ctx context.Context, id int64, p entity.JobProblem) error {
-	return s.repo.SetFailed(ctx, id, p)
+	return s.transition(ctx, id, entity.JobTransitionFail, func() error {
+		return s.repo.SetFailed(ctx, id, p)
+	})
 }
 
 func (s *JobService) FailActiveOnShutdown(ctx context.Context) (int, error) {
 	return s.repo.FailActive(ctx, ShutdownJobProblem())
+}
+
+func (s *JobService) transition(ctx context.Context, id int64, intent entity.JobTransition, apply func() error) error {
+	job, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+
+	spec, ok := entity.JobTransitionFor(intent)
+	if !ok {
+		return apperr.NewJobTransitionConflict(id, job.Status, entity.JobTransitionSpec{Intent: intent})
+	}
+	if !entity.CanTransitionJob(job.Status, intent) {
+		return apperr.NewJobTransitionConflict(id, job.Status, spec)
+	}
+
+	return apply()
 }
 
 func ShutdownJobProblem() entity.JobProblem {
