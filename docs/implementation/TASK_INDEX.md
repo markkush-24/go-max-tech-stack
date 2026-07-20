@@ -35,7 +35,7 @@ Remove defects that can corrupt state, bypass security or make shutdown results 
 
 | Task | Priority | Dependencies | Initial status | Title |
 |---|---|---|---|---|
-| [TASK-008](tasks/TASK-008-fix-status-recorder.md) | P0 | TASK-007 | READY | Fix first-status-only response recording with regression tests |
+| [TASK-008](tasks/TASK-008-fix-status-recorder.md) | P0 | TASK-007 | DONE | Fix first-status-only response recording with regression tests |
 | [TASK-009](tasks/TASK-009-define-job-state-machine.md) | P0 | TASK-007 | READY | Define an explicit immutable-terminal Job state machine |
 | [TASK-010](tasks/TASK-010-enforce-job-cas.md) | P0 | TASK-009 | BLOCKED | Enforce Job CAS transitions in memory and PostgreSQL repositories |
 | [TASK-011](tasks/TASK-011-worker-generation-lifecycle.md) | P0 | TASK-009 | BLOCKED | Redesign WorkerPool around an immutable worker generation |

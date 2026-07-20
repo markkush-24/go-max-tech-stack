@@ -309,3 +309,25 @@ Notes:
 Unlocked tasks:
 - none
 ```
+
+```text
+Task: TASK-008
+Accepted: 2026-07-20
+Commit: e62d6d04
+Reviewer: Mark
+Verification:
+- go test ./internal/middleware/...: PASS
+- go test -count=1 -run "TestStatusRecorder|TestMetricsAndLogger_RecordFirstWireStatus" -v ./internal/middleware: PASS
+- go test -count=1 ./internal/middleware/...: PASS
+- go test ./...: PASS
+- go vet ./internal/middleware/...: PASS
+- go test -race ./internal/middleware/...: FAIL; local CGO_ENABLED=0 rejects -race
+- CGO_ENABLED=1 go test -race ./internal/middleware/...: FAIL; local runtime/cgo could not find gcc in PATH
+- git diff --check: PASS
+Notes:
+- Fixed response status recording so the first committed status wins and implicit Write records 200.
+- Added recorder and Logger+Metrics regressions proving wire status, logged status and metric status stay aligned.
+- Remaining limitation: local Windows race verification requires CGO plus a C compiler.
+Unlocked tasks:
+- none
+```
