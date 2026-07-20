@@ -193,3 +193,36 @@ Unlocked tasks:
 - TASK-015
 - TASK-078
 ```
+
+```text
+Task: P0-CORR-001
+Accepted: 2026-07-20
+Commit: 74b89e1c
+Reviewer: Mark
+Verification:
+- .\scripts\install-tools.ps1: PASS
+- go test ./scripts/...: PASS
+- go -C tools mod tidy: PASS
+- go generate ./...: PASS
+- go generate ./...: PASS; second consecutive run produced no generated drift
+- git diff --name-status -- internal/transport/pb: PASS; no generated protobuf diff
+- pwsh -File ./scripts/check-clean-checkout.ps1: PASS; run in a disposable clean clone with the correction patch applied
+- stale tools/go.mod mutation in disposable clone: PASS; clean-checkout gate failed as expected
+- .\scripts\run-govulncheck.ps1: PASS; built with go1.25.12 and reported 0 affected vulnerabilities
+- go test ./...: PASS
+- go vet ./...: PASS
+- staticcheck ./...: PASS
+- gofmt -l cmd internal scripts: PASS
+- git diff --check: PASS
+- git diff --exit-code: FAIL; the correction diff was intentionally present in the main workspace before commit
+- go test -race ./...: FAIL; local CGO_ENABLED=0 rejects -race
+- CGO_ENABLED=1 go test -race ./...: FAIL; local runtime/cgo could not find gcc in PATH
+Notes:
+- Replaced substring tool-version checks with exact normalized token comparisons and post-install verification.
+- Added nested tools module tidy to the clean-checkout gate and verified stale tools/go.mod drift fails the gate.
+- Removed the local go1.25.8 govulncheck override so local binary scans use the repository-selected go1.25.12 baseline.
+- Remaining limitations: local Windows race tests need a C compiler; historical documentation still mentions go1.25.8 as prior context; P0-CORR-002 and P0-CORR-003 remain unimplemented.
+Unlocked tasks:
+- P0-CORR-002
+- P0-CORR-003
+```

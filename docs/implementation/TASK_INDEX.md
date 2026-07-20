@@ -18,6 +18,16 @@ Make a clean checkout buildable, testable and safe to hand to agents.
 | [TASK-006](tasks/TASK-006-isolate-config-tests.md) | P1 | — | DONE | Make configuration tests independent of host environment |
 | [TASK-007](tasks/TASK-007-target-toolchain-baseline.md) | P0 | TASK-003 | DONE | Establish the Go 1.25.12 verification baseline |
 
+## P0 Corrections — Review follow-up cards
+
+Correction cards are tracked separately from the 98 implementation tasks.
+
+| Task | Priority | Dependencies | Initial status | Title |
+|---|---|---|---|---|
+| [P0-CORR-001](corrections/P0-CORR-001-quality-system-consistency.md) | P0 | TASK-007 | DONE | Make codegen, clean-checkout and toolchain checks exact |
+| [P0-CORR-002](corrections/P0-CORR-002-archive-export-hardening.md) | P0 | — | READY | Make repository export fail safely and scan all key risks |
+| [P0-CORR-003](corrections/P0-CORR-003-operational-docs-provenance.md) | P0 | — | READY | Complete operational documentation and P0 provenance |
+
 ## P1 — Critical correctness, lifecycle and security
 
 Remove defects that can corrupt state, bypass security or make shutdown results untrustworthy.
