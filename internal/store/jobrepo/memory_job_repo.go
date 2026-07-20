@@ -2,6 +2,7 @@ package jobrepo
 
 import (
 	"context"
+	"pet-study/internal/apperr"
 	"pet-study/internal/entity"
 	"sync"
 )
@@ -89,35 +90,32 @@ func cloneJob(in entity.Job) entity.Job {
 }
 
 func (r *MemoryJobRepository) SetRunning(ctx context.Context, id int64) error {
-	r.mux.Lock()
-	defer r.mux.Unlock()
-
-	job, ok := r.jobs[id]
-	if !ok {
-		return entity.ErrJobNotFound
-	}
-	job.Status = entity.JobRunning
-	job.Result = nil
-	job.Error = nil
-	return nil
+	return r.transition(id, entity.JobTransitionStart, func(job *entity.Job) {
+		job.Status = entity.JobRunning
+		job.Result = nil
+		job.Error = nil
+	})
 }
 
 func (r *MemoryJobRepository) SetSucceeded(ctx context.Context, id int64, res entity.JobResult) error {
-	r.mux.Lock()
-	defer r.mux.Unlock()
-
-	job, ok := r.jobs[id]
-	if !ok {
-		return entity.ErrJobNotFound
-	}
-	job.Status = entity.JobSucceeded
-	rr := res
-	job.Result = &rr
-	job.Error = nil
-	return nil
+	return r.transition(id, entity.JobTransitionSucceed, func(job *entity.Job) {
+		job.Status = entity.JobSucceeded
+		rr := res
+		job.Result = &rr
+		job.Error = nil
+	})
 }
 
 func (r *MemoryJobRepository) SetFailed(ctx context.Context, id int64, p entity.JobProblem) error {
+	return r.transition(id, entity.JobTransitionFail, func(job *entity.Job) {
+		job.Status = entity.JobFailed
+		pp := cloneJobProblem(p)
+		job.Error = &pp
+		job.Result = nil
+	})
+}
+
+func (r *MemoryJobRepository) transition(id int64, intent entity.JobTransition, apply func(*entity.Job)) error {
 	r.mux.Lock()
 	defer r.mux.Unlock()
 
@@ -125,13 +123,16 @@ func (r *MemoryJobRepository) SetFailed(ctx context.Context, id int64, p entity.
 	if !ok {
 		return entity.ErrJobNotFound
 	}
-	job.Status = entity.JobFailed
-	pp := p
-	if pp.InvalidParams != nil {
-		pp.InvalidParams = append([]entity.JobInvalidParam(nil), pp.InvalidParams...)
+
+	spec, ok := entity.JobTransitionFor(intent)
+	if !ok {
+		return apperr.NewJobTransitionConflict(id, job.Status, entity.JobTransitionSpec{Intent: intent})
 	}
-	job.Error = &pp
-	job.Result = nil
+	if !entity.CanTransitionJob(job.Status, intent) {
+		return apperr.NewJobTransitionConflict(id, job.Status, spec)
+	}
+
+	apply(job)
 	return nil
 }
 
@@ -146,14 +147,19 @@ func (r *MemoryJobRepository) FailActive(ctx context.Context, p entity.JobProble
 		}
 
 		job.Status = entity.JobFailed
-		pp := p
-		if pp.InvalidParams != nil {
-			pp.InvalidParams = append([]entity.JobInvalidParam(nil), pp.InvalidParams...)
-		}
+		pp := cloneJobProblem(p)
 		job.Error = &pp
 		job.Result = nil
 		failed++
 	}
 
 	return failed, nil
+}
+
+func cloneJobProblem(in entity.JobProblem) entity.JobProblem {
+	out := in
+	if out.InvalidParams != nil {
+		out.InvalidParams = append([]entity.JobInvalidParam(nil), out.InvalidParams...)
+	}
+	return out
 }

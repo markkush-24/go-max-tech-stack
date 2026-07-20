@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"pet-study/internal/apperr"
 	"pet-study/internal/db"
 	"pet-study/internal/entity"
 	"time"
@@ -13,6 +14,11 @@ import (
 const (
 	qGetJobById = `
 SELECT id, status, owner_user_id, result_user_id, error_payload
+FROM jobs
+WHERE id = $1
+`
+	qGetJobStatus = `
+SELECT status
 FROM jobs
 WHERE id = $1
 `
@@ -35,14 +41,15 @@ WHERE id = $5
 
 	qSetJobRunning = `
 UPDATE jobs
-	SET
+SET
 	status = $1,
-result_user_id = NULL,
-error_payload = NULL,
-started_at = now(),
-finished_at = NULL,
-updated_at = now()
-WHERE id = $2`
+	result_user_id = NULL,
+	error_payload = NULL,
+	started_at = now(),
+	finished_at = NULL,
+	updated_at = now()
+WHERE id = $2 AND status = $3
+`
 
 	qSetJobSucceeded = `
 UPDATE jobs
@@ -52,7 +59,7 @@ SET
 	error_payload = NULL,
 	finished_at = now(),
 	updated_at = now()
-WHERE id = $3
+WHERE id = $3 AND status = $4
 `
 
 	qSetJobFailed = `
@@ -63,7 +70,7 @@ SET
 	error_payload = $2,
 	finished_at = now(),
 	updated_at = now()
-WHERE id = $3
+WHERE id = $3 AND status IN ($4, $5)
 `
 
 	qFailActiveJobs = `
@@ -239,7 +246,7 @@ func (r *SQLXJobRepository) SetRunning(ctx context.Context, id int64) error {
 	ctx, cancel := context.WithTimeout(ctx, r.queryTimeout)
 	defer cancel()
 
-	res, err := r.sqlDB.ExecContext(ctx, qSetJobRunning, entity.JobRunning, id)
+	res, err := r.sqlDB.ExecContext(ctx, qSetJobRunning, entity.JobRunning, id, entity.JobQueued)
 	if err != nil {
 		return mapJobRepoErr(err)
 	}
@@ -249,7 +256,7 @@ func (r *SQLXJobRepository) SetRunning(ctx context.Context, id int64) error {
 		return err
 	}
 	if n == 0 {
-		return entity.ErrJobNotFound
+		return r.transitionConflictOrNotFound(ctx, id, entity.JobTransitionStart)
 	}
 
 	return nil
@@ -264,6 +271,7 @@ func (r *SQLXJobRepository) SetSucceeded(ctx context.Context, id int64, res enti
 		entity.JobSucceeded,
 		res.UserID,
 		id,
+		entity.JobRunning,
 	)
 	if err != nil {
 		return mapJobRepoErr(err)
@@ -274,7 +282,7 @@ func (r *SQLXJobRepository) SetSucceeded(ctx context.Context, id int64, res enti
 		return err
 	}
 	if n == 0 {
-		return entity.ErrJobNotFound
+		return r.transitionConflictOrNotFound(ctx, id, entity.JobTransitionSucceed)
 	}
 
 	return nil
@@ -294,6 +302,8 @@ func (r *SQLXJobRepository) SetFailed(ctx context.Context, id int64, p entity.Jo
 		entity.JobFailed,
 		errorPayload,
 		id,
+		entity.JobQueued,
+		entity.JobRunning,
 	)
 	if err != nil {
 		return mapJobRepoErr(err)
@@ -304,7 +314,7 @@ func (r *SQLXJobRepository) SetFailed(ctx context.Context, id int64, p entity.Jo
 		return err
 	}
 	if n == 0 {
-		return entity.ErrJobNotFound
+		return r.transitionConflictOrNotFound(ctx, id, entity.JobTransitionFail)
 	}
 
 	return nil
@@ -376,6 +386,19 @@ func mapJobRepoErr(err error) error {
 	}
 
 	return err
+}
+
+func (r *SQLXJobRepository) transitionConflictOrNotFound(ctx context.Context, id int64, intent entity.JobTransition) error {
+	var status string
+	if err := r.sqlDB.GetContext(ctx, &status, qGetJobStatus, id); err != nil {
+		return mapJobRepoErr(err)
+	}
+
+	spec, ok := entity.JobTransitionFor(intent)
+	if !ok {
+		return apperr.NewJobTransitionConflict(id, entity.JobStatus(status), entity.JobTransitionSpec{Intent: intent})
+	}
+	return apperr.NewJobTransitionConflict(id, entity.JobStatus(status), spec)
 }
 
 func toNullInt64(result *entity.JobResult) sql.NullInt64 {
