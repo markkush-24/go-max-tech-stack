@@ -281,8 +281,10 @@ CI:
 .\scripts\export-archive.ps1
 ```
 
-По умолчанию архив создаётся в `.artifacts/pet-study-source.zip`. Скрипт использует `git archive HEAD`, исключает
-локальные артефакты и проверяет архив на очевидные secret/artifact paths. Development certificates and keys для
+По умолчанию архив создаётся в `.artifacts/pet-study-source.zip`. Скрипт использует `git archive HEAD`, собирает
+временный ZIP, валидирует paths/content и публикует финальный файл только после успешной проверки. Он блокирует
+локальные артефакты, IDE/OS scratch files и key material вроде `*.pem`, `*.key`, `*.ppk`, `*.p12`, `*.pfx`; PEM
+private-key markers сканируются потоково, включая большие text entries. Development certificates and keys для
 локального HTTPS генерируются на машине разработчика и не коммитятся.
 
 Подробные правила: `docs/repository-archive-hygiene.md`.

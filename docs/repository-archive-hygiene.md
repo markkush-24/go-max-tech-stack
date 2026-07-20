@@ -17,19 +17,26 @@ The default output is:
 ```
 
 The export script uses `git archive HEAD`, so the archive contains only tracked
-files from the selected commit. It also rejects blocked paths and scans small
-archive entries for PEM private-key markers before reporting success.
+files from the selected commit. It writes to a temporary ZIP first, validates
+paths and content, then publishes the final output only after validation passes.
+If validation fails, the temporary ZIP is removed and any existing final archive
+is left unchanged.
 
 Blocked archive content:
 
 - `.git/`
-- `.idea/`, `.vscode/`, `*.iml`
+- `.idea/`, `.vscode/`, `*.iml`, `*.swp`
+- `.DS_Store`, `Thumbs.db`
 - `.artifacts/`, `bin/`, `dist/`, `tmp/`
 - runtime logs such as `server.log` or `*.log`
 - request scratch files such as `req.json` and `req-async.json`
 - accidental shell/curl scratch files such as `-H`
 - local environment files such as `.env`, `.env.*`, `*.local`
-- development certificates and key material under `certs/`, `*.pem`, `*.key`
+- development certificates and key material under `certs/`, `*.pem`, `*.key`,
+  `*.ppk`, `*.p12`, `*.pfx`
+
+The content scan checks archive entries for PEM private-key markers using a
+bounded streaming scan, including text entries larger than 1 MiB.
 
 Development certificates and keys are local-only artifacts. Generate them on
 each developer machine when HTTPS smoke testing is needed, and point
