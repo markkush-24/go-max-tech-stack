@@ -331,3 +331,23 @@ Notes:
 Unlocked tasks:
 - none
 ```
+
+```text
+Task: TASK-009
+Accepted: 2026-07-20
+Commit: c7e8632f
+Reviewer: Mark
+Verification:
+- go test -count=1 ./internal/entity/... ./internal/service/...: PASS
+- go test ./internal/entity/... ./internal/service/...: PASS
+- go test ./...: PASS
+- go vet ./internal/entity/... ./internal/service/...: PASS
+- git diff --check: PASS
+Notes:
+- Defined explicit Job transition intents and terminal states.
+- Added typed transition-conflict errors and service-level validation before repository transition calls.
+- Remaining limitation: concrete repository CAS/expected-source-state enforcement is intentionally left for TASK-010.
+Unlocked tasks:
+- TASK-010
+- TASK-011
+```
