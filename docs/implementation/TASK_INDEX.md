@@ -26,7 +26,7 @@ Correction cards are tracked separately from the 98 implementation tasks.
 |---|---|---|---|---|
 | [P0-CORR-001](corrections/P0-CORR-001-quality-system-consistency.md) | P0 | TASK-007 | DONE | Make codegen, clean-checkout and toolchain checks exact |
 | [P0-CORR-002](corrections/P0-CORR-002-archive-export-hardening.md) | P0 | — | DONE | Make repository export fail safely and scan all key risks |
-| [P0-CORR-003](corrections/P0-CORR-003-operational-docs-provenance.md) | P0 | — | READY | Complete operational documentation and P0 provenance |
+| [P0-CORR-003](corrections/P0-CORR-003-operational-docs-provenance.md) | P0 | — | DONE | Complete operational documentation and P0 provenance |
 
 ## P1 — Critical correctness, lifecycle and security
 

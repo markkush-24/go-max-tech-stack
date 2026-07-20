@@ -255,3 +255,26 @@ Notes:
 Unlocked tasks:
 - none
 ```
+
+```text
+Task: P0-CORR-003
+Accepted: 2026-07-20
+Commit: 6bd20117
+Reviewer: Mark
+Verification:
+- go test ./internal/config/... ./internal/router/...: PASS
+- go test -count=20 ./internal/config/...: PASS
+- go test ./...: PASS
+- git grep -n "Authorization: Bearer" README.md: PASS
+- git grep -n "migrations" README.md docs: PASS
+- git diff --check: PASS
+- docker compose config --services: PASS
+- README vs validConfigEnv comparison script: PASS; 58/58 documented
+- docker-compose.yml service/env static check: PASS
+Notes:
+- Completed operational README documentation for config env vars, protected API examples and local PostgreSQL migration workflow.
+- Added repository-owned P0 provenance notes for dependency security remediation, manual internal/db cleanup and TASK-006 telemetry N/A scope.
+- Remaining limitation: migration commands were statically verified against Docker Compose names but not run against a live database in this task.
+Unlocked tasks:
+- none
+```
