@@ -15,6 +15,12 @@ Unlocked tasks:
 - ...
 ```
 
+## P0 Provenance Notes
+
+- Dependency security remediation: pgx and affected transitive modules were updated after reproduced `govulncheck` findings so binary vulnerability scans could pass on the Go 1.25.12 baseline. The current source state records `github.com/jackc/pgx/v5 v5.9.2` and `golang.org/x/net v0.53.0`.
+- Manual cleanup: removal of empty or unused `internal/db` files was accepted as repository cleanup outside the original task-card scopes. The remaining `internal/db` package owns database open/stats helpers only.
+- TASK-006 telemetry validation: telemetry-specific config validation was not applicable because `internal/config` has no telemetry configuration yet. Hostile telemetry/runtime environment values were covered only as unrelated environment input.
+
 ```text
 Task: TASK-001
 Accepted: 2026-07-19

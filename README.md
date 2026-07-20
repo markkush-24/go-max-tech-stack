@@ -22,6 +22,27 @@ docker compose up -d postgres
 Приложение на старте проверяет доступность PostgreSQL через ping. SQL schema должна быть применена из `migrations/*.up.sql`
 отдельно; встроенного migration runner в `cmd/api` сейчас нет.
 
+Применить локальные migrations к Docker Compose service `postgres`:
+
+```powershell
+Get-ChildItem .\migrations\*.up.sql | Sort-Object Name | ForEach-Object {
+  Get-Content -Raw $_.FullName |
+    docker compose exec -T postgres psql -U petstudy -d petstudy -v ON_ERROR_STOP=1
+}
+```
+
+Проверить, что таблицы `users` и `jobs` существуют:
+
+```powershell
+docker compose exec -T postgres psql -U petstudy -d petstudy -tAc "select count(*) from information_schema.tables where table_schema='public' and table_name in ('users','jobs');"
+```
+
+Ожидаемый вывод: `2`.
+
+В local workflow migrations применяет разработчик перед стартом приложения. В deployment workflow применение schema
+остаётся обязанностью orchestration/deploy шага до запуска нового экземпляра приложения, пока в `cmd/api` нет migration
+runner.
+
 **Linux/macOS (bash/zsh):**
 
 ```bash
@@ -42,6 +63,17 @@ go run .\cmd\api
 ```powershell
 $env:STORAGE_BACKEND="memory"
 go run .\cmd\api
+```
+
+### Локальные JWT токены для примеров
+
+Для protected API examples ниже используются dev-ключи из default `AUTH_JWT_KEYS=dev:dev-secret`.
+
+```powershell
+$Base = "http://localhost:8080"
+
+$AdminToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6ImRldiJ9.eyJzdWIiOiIxIiwicm9sZSI6ImFkbWluIiwiZXhwIjoxODkzNDU2MDAwfQ.vUO8q4ilMk36iOimRFvdt_EWo5TXffr7Q3MIOMU3vIU"
+$UserToken  = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6ImRldiJ9.eyJzdWIiOiIxIiwicm9sZSI6InVzZXIiLCJleHAiOjE4OTM0NTYwMDB9.088yBOvdyuqkiHsBjQCETIUEZHH6U4O_RVV4nduojVc"
 ```
 
 ### Локальный HTTPS
@@ -90,7 +122,9 @@ HTTP/2 в этом проекте активируется через HTTPS list
 
 ```powershell
 curl.exe -k --http2 -i https://localhost:8443/livez
-curl.exe -k --http2 -i https://localhost:8443/api/v1/users/1
+curl.exe -k --http2 -i `
+  -H "Authorization: Bearer $UserToken" `
+  https://localhost:8443/api/v1/users/1
 ```
 
 Ожидание:
@@ -293,6 +327,7 @@ private-key markers сканируются потоково, включая бо
 
 Все значения читаются из переменных окружения. Если переменная **не задана** — используется дефолт.
 Если переменная **задана, но пустая/некорректная** — приложение завершится с ошибкой.
+Таблица ниже покрывает те же 58 переменных, что и `validConfigEnv` в `internal/config/config_test.go`.
 
 | Переменная                                   |      Тип |                       Дефолт | Описание                                                                               |
 |----------------------------------------------|---------:|-----------------------------:|----------------------------------------------------------------------------------------|
@@ -315,6 +350,12 @@ private-key markers сканируются потоково, включая бо
 | `STREAMING_WRITE_TIMEOUT`                    | duration |                        `10s` | Дедлайн записи одного SSE flush/write                                                   |
 | `STORAGE_BACKEND`                            |   string |                   `postgres` | Backend репозиториев: `postgres` или `memory`; default — PostgreSQL                     |
 | `DB_DSN`                                     |   string | `postgres://petstudy:petstudy@localhost:5432/petstudy?sslmode=disable` | DSN для PostgreSQL backend; если задана — должна быть непустой                         |
+| `DB_MAX_OPEN_CONNS`                          |      int |                           10 | `sql.DB.SetMaxOpenConns`; 0 разрешён как отсутствие лимита                              |
+| `DB_MAX_IDLE_CONNS`                          |      int |                           10 | `sql.DB.SetMaxIdleConns`; 0 разрешён                                                    |
+| `DB_CONN_MAX_LIFETIME`                       | duration |                        `30m` | `sql.DB.SetConnMaxLifetime`; должно быть > 0                                            |
+| `DB_CONN_MAX_IDLE_TIME`                      | duration |                         `5m` | `sql.DB.SetConnMaxIdleTime`; должно быть > 0                                            |
+| `DB_QUERY_TIMEOUT`                           | duration |                         `3s` | Дедлайн PostgreSQL query operations                                                     |
+| `DB_PING_TIMEOUT`                            | duration |                         `1s` | Дедлайн PostgreSQL startup/readiness ping                                               |
 | `WORKERS_COUNT`                              |      int |                           10 | Кол-во воркеров worker pool для обработки async jobs (должно быть > 0)                 |
 | `QUEUE_SIZE`                                 |      int |                           10 | Размер bounded очереди для async jobs                                                  |
 | `RATE_LIMIT_RPS`                             |      int |                            5 | Глобальный rate limit (requests per second) для API (token bucket)                     |
@@ -331,6 +372,23 @@ private-key markers сканируются потоково, включая бо
 | `OUTBOUND_RETRY_MAX_ATTEMPTS`                |      int |                          `1` | Кол-во попыток outbound (включая первую)                                               |
 | `OUTBOUND_RETRY_BASE_DELAY`                  | duration |                       `50ms` | Base delay для backoff (перед 2-й попыткой)                                            |
 | `OUTBOUND_RETRY_MAX_DELAY`                   | duration |                      `500ms` | Max delay (cap) для backoff                                                            |
+| `AUTH_JWT_ALLOWED_ALG`                       |   string |                      `HS256` | Разрешённый JWT alg; сейчас поддерживается только `HS256`                               |
+| `AUTH_JWT_CLOCK_SKEW`                        | duration |                        `30s` | Допустимое неотрицательное clock skew для JWT validation                                |
+| `AUTH_JWT_ISSUER`                            |   string |                    *(пусто)* | Expected issuer; пустой default отключает issuer check                                  |
+| `AUTH_JWT_AUDIENCE`                          |   string |                    *(пусто)* | Expected audience; пустой default отключает audience check                              |
+| `AUTH_JWT_KEYS`                              |      CSV |             `dev:dev-secret` | JWT signing keys в формате `kid:secret[,kid:secret...]`; минимум один key               |
+| `CORS_ALLOWED_ORIGINS`                       |      CSV |                    *(пусто)* | Allowed origins; если не задано, CORS origin allowlist пустой; `*` разрешён без credentials |
+| `CORS_ALLOWED_METHODS`                       |      CSV |          `GET,POST,OPTIONS` | Allowed methods для CORS preflight                                                      |
+| `CORS_ALLOWED_HEADERS`                       |      CSV | `Authorization,Content-Type,If-None-Match,X-Request-Id` | Allowed headers для CORS preflight                                                      |
+| `CORS_ALLOW_CREDENTIALS`                     |     bool |                      `false` | Включить credentials в CORS; несовместимо с origin `*`                                  |
+| `CORS_MAX_AGE`                               | duration |                         `5m` | Неотрицательный `Access-Control-Max-Age`                                                |
+| `PROXY_TRUSTED_PROXIES`                      |      CSV |                    *(пусто)* | Trusted proxy CIDR/IP list для forwarded headers                                        |
+| `PROXY_TRUST_XFF`                            |     bool |                      `false` | Доверять `X-Forwarded-For` только от trusted proxy                                      |
+| `PROXY_TRUST_XFP`                            |     bool |                      `false` | Доверять `X-Forwarded-Proto` только от trusted proxy                                    |
+| `SECURITY_HEADERS_ENABLE`                    |     bool |                       `true` | Включить security headers middleware                                                    |
+| `SECURITY_HEADERS_REFERRER_POLICY`           |   string |                `no-referrer` | Значение `Referrer-Policy`; если задано, не должно быть пустым                          |
+| `SECURITY_HEADERS_HSTS_ENABLE`               |     bool |                      `false` | Включить HSTS для HTTPS-effective requests                                              |
+| `SECURITY_HEADERS_HSTS_MAX_AGE`              | duration |                         `0s` | Неотрицательный HSTS max-age; при HSTS enable должен быть > 0                           |
 
 Пример (PowerShell):
 
@@ -577,40 +635,61 @@ curl.exe -i http://localhost:8080/readyz
 ### Создать пользователя (v1)
 
 ```powershell
-curl.exe -i -X POST http://localhost:8080/api/v1/users -H "Content-Type: application/json" -d "{\"name\":\"Test User\",\"email\":\"test@email.com\"}"
+curl.exe -i -X POST "$Base/api/v1/users" `
+  -H "Authorization: Bearer $AdminToken" `
+  -H "Content-Type: application/json" `
+  -d "{\"name\":\"Test User\",\"email\":\"test@email.com\"}"
 ```
 
 ### Получить пользователя по id
 
 1) получаем ETag
 ```powershell
-curl.exe -i -H "Accept: application/json" http://localhost:8080/api/v1/users/1
+curl.exe -i `
+  -H "Authorization: Bearer $UserToken" `
+  -H "Accept: application/json" `
+  "$Base/api/v1/users/1"
 ```
 
 2) повторяем запрос с If-None-Match (подставь ETag из шага 1)
 ```powershell
-curl.exe -i -H "Accept: application/json" -H "If-None-Match: W/\"u:1:v:1\"" http://localhost:8080/api/v1/users/1
+curl.exe -i `
+  -H "Authorization: Bearer $UserToken" `
+  -H "Accept: application/json" `
+  -H "If-None-Match: W/\"u:1:v:1\"" `
+  "$Base/api/v1/users/1"
 ```
 
 3) Получить пользователя с профилем (outbound)
 ```powershell
-curl.exe -i -H "Accept: application/json" http://localhost:8080/api/v1/users/1/profile
+curl.exe -i `
+  -H "Authorization: Bearer $UserToken" `
+  -H "Accept: application/json" `
+  "$Base/api/v1/users/1/profile"
 ```
 
 ### Создать пользователя (v2)
 
 ```powershell
-curl.exe -i -X POST http://localhost:8080/api/v2/users -H "Content-Type: application/json" -d "{\"full_name\":\"Test User\",\"email\":\"test@email.com\"}"
+curl.exe -i -X POST "$Base/api/v2/users" `
+  -H "Authorization: Bearer $AdminToken" `
+  -H "Content-Type: application/json" `
+  -d "{\"full_name\":\"Test User\",\"email\":\"test@email.com\"}"
 ```
 
 ### Ошибка JSON / контрактов
 
 ```powershell
 # 415 (нет Content-Type)
-curl.exe -i -X POST http://localhost:8080/api/v1/users -d "{bad json"
+curl.exe -i -X POST "$Base/api/v1/users" `
+  -H "Authorization: Bearer $AdminToken" `
+  -d "{bad json"
 
 # 400 (malformed JSON)
-curl.exe -i -X POST http://localhost:8080/api/v1/users -H "Content-Type: application/json" -d "{bad json"
+curl.exe -i -X POST "$Base/api/v1/users" `
+  -H "Authorization: Bearer $AdminToken" `
+  -H "Content-Type: application/json" `
+  -d "{bad json"
 ```
 
 ### Debug (после запуска с HTTP_DEBUG=true)
@@ -625,14 +704,17 @@ curl.exe -i -H "Authorization: Bearer $AdminToken" http://localhost:8080/debug/p
 
 ```powershell
 curl.exe -i -X POST "http://localhost:8080/api/v1/users?async=1" `
--H "Content-Type: application/json" `
--d "{\"name\":\"Bob\",\"email\":\"bob@example.com\",\"age\":21}"
+  -H "Authorization: Bearer $AdminToken" `
+  -H "Content-Type: application/json" `
+  -d "{\"name\":\"Bob\",\"email\":\"bob@example.com\",\"age\":21}"
 ```
 
 ### Проверить статус job # job id берём из заголовка Location: /api/v1/jobs/{id}
 
 ```powershell
-curl.exe -i http://localhost:8080/api/v1/jobs/1
+curl.exe -i `
+  -H "Authorization: Bearer $AdminToken" `
+  "$Base/api/v1/jobs/1"
 ```
 
 ### SSE stream по job
@@ -748,7 +830,11 @@ go test ./...
 Скачать protobuf-ответ (PowerShell):
 
 ```powershell
-curl -H "Accept: application/protobuf" http://localhost:8080/api/v1/users/1 --output user.pb
+curl.exe `
+  -H "Authorization: Bearer $UserToken" `
+  -H "Accept: application/protobuf" `
+  "$Base/api/v1/users/1" `
+  --output user.pb
 ```
 
 Если получаешь `200 OK` и `Content-Type: application/protobuf`, значит negotiation для protobuf работает.
@@ -833,7 +919,10 @@ go run $tmp
 
 ## Проверка
 ```powershell 
-curl.exe -i -H "Accept: application/json" http://localhost:8080/api/v1/users/1/profile
+curl.exe -i `
+  -H "Authorization: Bearer $UserToken" `
+  -H "Accept: application/json" `
+  "$Base/api/v1/users/1/profile"
 ```
 
 ## Step 6 — Security layer
