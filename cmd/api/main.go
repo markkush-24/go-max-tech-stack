@@ -111,10 +111,6 @@ func run() error {
 	//Async
 	q := queue.New(cfg.Pool.QueueSize)
 	pool := workerpool.NewWorkerPool(q, jobService, userService, m, eventHub)
-	poolErr := pool.Start(ctx, cfg.Pool.Workers)
-	if poolErr != nil {
-		return poolErr
-	}
 
 	//Client-Transport
 	httpClient, tr := httpclient.New(cfg.Outbound)
@@ -142,7 +138,6 @@ func run() error {
 		if err != nil {
 			return err
 		}
-		grpcRuntime.Start(stop)
 
 		jobsGRPCClient, grpcConn, err = grpcclient.NewJobsClient(cfg.GRPC.Addr)
 		if err != nil {
