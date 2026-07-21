@@ -68,7 +68,7 @@ func (h *UsersV2Handler) Create(w http.ResponseWriter, r *http.Request) error {
 		}
 		item := queue.WorkItem{JobID: job.ID, Payload: inV1}
 		if enqueueErr := h.workerQueue.Enqueue(r.Context(), item); enqueueErr != nil {
-			deleteErr := h.jobService.Delete(r.Context(), job.ID)
+			deleteErr := deleteJobAfterFailedEnqueue(r.Context(), h.jobService, job.ID)
 			if deleteErr != nil {
 				return errors.Join(enqueueErr, deleteErr)
 			}

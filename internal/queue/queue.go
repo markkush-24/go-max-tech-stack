@@ -5,7 +5,6 @@ import (
 	"expvar"
 	"pet-study/internal/entity"
 	"sync"
-	"sync/atomic"
 )
 
 var (
@@ -14,8 +13,9 @@ var (
 )
 
 type Queue struct {
-	ch     chan WorkItem
-	closed atomic.Bool
+	ch      chan WorkItem
+	mu      sync.RWMutex
+	stopped bool
 }
 
 type WorkItem struct {
@@ -23,14 +23,32 @@ type WorkItem struct {
 	Payload entity.CreateUserInput
 }
 
+// StopAccepting is a strict post-return admission barrier. Enqueue calls that
+// entered before StopAccepting acquired the barrier may complete, but once
+// StopAccepting returns no Enqueue can succeed. The producer channel is not
+// closed, so workers can continue draining already accepted work.
 func (q *Queue) StopAccepting() {
-	q.closed.Store(true)
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	q.stopped = true
 }
 
 func (q *Queue) Enqueue(ctx context.Context, item WorkItem) error {
-	if q.closed.Load() {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	q.mu.RLock()
+	defer q.mu.RUnlock()
+
+	if q.stopped {
 		return ErrQueueStopped
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	select {
 	case q.ch <- item:
 		return nil

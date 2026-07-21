@@ -2,6 +2,7 @@ package routes
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,6 +17,8 @@ import (
 	"pet-study/internal/transport/pb"
 	"time"
 )
+
+const asyncEnqueueRollbackTimeout = 2 * time.Second
 
 type UsersHandler struct {
 	userService  *service.UserService
@@ -71,7 +74,7 @@ func (h *UsersHandler) Create(w http.ResponseWriter, r *http.Request) error {
 		}
 		item := queue.WorkItem{JobID: job.ID, Payload: in}
 		if enqueueErr := h.workerQueue.Enqueue(r.Context(), item); enqueueErr != nil {
-			deleteErr := h.jobService.Delete(r.Context(), job.ID)
+			deleteErr := deleteJobAfterFailedEnqueue(r.Context(), h.jobService, job.ID)
 			if deleteErr != nil {
 				return errors.Join(enqueueErr, deleteErr)
 			}
@@ -201,4 +204,11 @@ func (h *UsersHandler) List(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	return httputils.WriteJSON(w, http.StatusOK, usersDtos)
+}
+
+func deleteJobAfterFailedEnqueue(ctx context.Context, jobService *service.JobService, id int64) error {
+	rollbackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), asyncEnqueueRollbackTimeout)
+	defer cancel()
+
+	return jobService.Delete(rollbackCtx, id)
 }
