@@ -49,7 +49,7 @@ Remove defects that can corrupt state, bypass security or make shutdown results 
 | [TASK-019](tasks/TASK-019-grpc-transport-security.md) | P0 | TASK-018, TASK-015 | DONE | Add gRPC TLS or mTLS and environment-controlled reflection |
 | [TASK-020](tasks/TASK-020-grpc-authz.md) | P0 | TASK-018, TASK-019 | DONE | Add gRPC authentication, RBAC and owner authorization |
 | [TASK-021](tasks/TASK-021-grpc-metadata-errors.md) | P0 | TASK-020 | DONE | Normalize gRPC metadata, request ID, status codes and bridge timeout |
-| [TASK-022](tasks/TASK-022-production-security-guards.md) | P0 | TASK-005 | READY | Add environment guards for JWT, TLS, proxy and security-header defaults |
+| [TASK-022](tasks/TASK-022-production-security-guards.md) | P0 | TASK-005 | DONE | Add environment guards for JWT, TLS, proxy and security-header defaults |
 
 ## P2 — Observability foundation
 
@@ -123,8 +123,8 @@ Normalize API, browser, SSE and caching behavior.
 | [TASK-065](tasks/TASK-065-strict-route-query-contract.md) | P1 | TASK-064 | BLOCKED | Resolve v2 item surface, unknown-route precedence and strict query parsing |
 | [TASK-066](tasks/TASK-066-cors-response-contract.md) | P1 | — | BACKLOG | Expose required browser headers and complete CORS Vary behavior |
 | [TASK-067](tasks/TASK-067-route-cors-policy.md) | P2 | TASK-066, TASK-064 | BLOCKED | Introduce route-aware CORS method/header policies |
-| [TASK-068](tasks/TASK-068-host-security-headers.md) | P1 | TASK-022 | BLOCKED | Apply configured security headers and host-wide HSTS correctly |
-| [TASK-069](tasks/TASK-069-trusted-xff-chain.md) | P1 | TASK-022 | BLOCKED | Define and implement trusted X-Forwarded-For chain semantics |
+| [TASK-068](tasks/TASK-068-host-security-headers.md) | P1 | TASK-022 | READY | Apply configured security headers and host-wide HSTS correctly |
+| [TASK-069](tasks/TASK-069-trusted-xff-chain.md) | P1 | TASK-022 | READY | Define and implement trusted X-Forwarded-For chain semantics |
 | [TASK-070](tasks/TASK-070-problem-catalog.md) | P1 | TASK-061 | BLOCKED | Adopt an RFC 9457 Problem catalog and explicit cache policy |
 | [TASK-071](tasks/TASK-071-sse-handshake-errors.md) | P0 | TASK-060, TASK-008 | BLOCKED | Commit SSE immediately and handle post-commit errors without Problem corruption |
 | [TASK-072](tasks/TASK-072-sse-resume-contract.md) | P1 | TASK-071, TASK-010 | BLOCKED | Add SSE snapshot, sequence and reconnect/resync semantics |

@@ -648,3 +648,26 @@ Notes:
 Unlocked tasks:
 - TASK-061
 ```
+
+```text
+Task: TASK-022
+Accepted: 2026-07-21
+Commit: b92fac3b
+Reviewer: Mark
+Verification:
+- go test ./internal/config: PASS
+- go test ./internal/middleware: PASS
+- go test ./internal/config/... ./internal/middleware/...: PASS
+- go test ./...: PASS
+- staticcheck ./...: PASS
+- git diff --check: PASS
+Notes:
+- Added APP_ENV security-profile guards for JWT defaults.
+- Added HTTP TLS minimum-version parsing and validation.
+- Made Referrer-Policy use runtime config instead of the hardcoded no-referrer value.
+- Added trusted-proxy guard enforcement in config and NewProxyAPI.
+- Remaining limitation: new env keys are code-backed but README docs were not updated because TASK-022 scope did not include docs.
+Unlocked tasks:
+- TASK-068
+- TASK-069
+```
