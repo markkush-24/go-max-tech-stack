@@ -443,3 +443,29 @@ Notes:
 Unlocked tasks:
 - TASK-014
 ```
+
+```text
+Task: TASK-014
+Accepted: 2026-07-21
+Commit: 42359c14
+Reviewer: Mark
+Verification:
+- gofmt -w internal/routes/users_handler.go internal/routes/users_handler_v2.go internal/testkit/testkit.go internal/stream/stream.go internal/stream/stream_test.go internal/routes/async_event_topology_test.go: PASS
+- go test -count=1 ./internal/routes -run TestAsyncCreatePublishesMonotonicEventsToJobSSE: PASS
+- go test -count=1 ./internal/stream -run TestHub: PASS
+- go test -count=1 ./internal/routes/... ./internal/stream/... ./internal/testkit/...: PASS
+- go test -race ./internal/routes/... ./internal/stream/... ./internal/testkit/...: FAIL; local CGO_ENABLED=0 rejects -race
+- CGO_ENABLED=1 go test -race ./internal/routes/... ./internal/stream/... ./internal/testkit/...: FAIL; local runtime/cgo could not find gcc in PATH
+- go test ./...: PASS
+- staticcheck ./...: PASS
+- go vet ./internal/routes/... ./internal/stream/... ./internal/testkit/...: PASS
+- git diff --check: PASS
+Notes:
+- Corrected async event ordering so queued is published before a work item becomes visible to workers.
+- Aligned testkit with production topology by using one Event Hub for async producers and SSE consumers.
+- Added bounded Event Hub replay and full async-create-to-SSE coverage without manual publish.
+- Remaining limitation: local Windows race verification requires CGO plus a C compiler.
+- Remaining limitation: if Enqueue fails after durable Job Save, a short-lived queued event/count may exist for a job that is then rolled back.
+Unlocked tasks:
+- none
+```
