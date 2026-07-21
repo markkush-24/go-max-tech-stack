@@ -162,20 +162,25 @@ curl.exe -N -i `
 Сервис: `pb.JobsService`.
 Минимальный метод: `GetJob`.
 
+Security decision: direct gRPC is a private authenticated internal interface, not a public edge API. The deployable
+model is recorded in `docs/adr/ADR-001-direct-grpc-security-model.md`: protected deployments require mTLS, application
+identity propagation, RBAC/owner checks and reflection disabled by default. Until those controls are implemented, use
+direct gRPC only for local loopback development; do not expose a network-reachable plaintext listener.
+
 PowerShell:
 
 ```powershell
 $env:GRPC_ENABLE="true"
-$env:GRPC_ADDR=":9090"
+$env:GRPC_ADDR="127.0.0.1:9090"
 go run .\cmd\api
 ```
 
 Быстрая проверка через `grpcurl`:
 
 ```powershell
-grpcurl -plaintext localhost:9090 list
-grpcurl -plaintext localhost:9090 describe pb.JobsService
-'{"id":1}' | grpcurl.exe -plaintext -d '@' localhost:9090 pb.JobsService/GetJob
+grpcurl -plaintext 127.0.0.1:9090 list
+grpcurl -plaintext 127.0.0.1:9090 describe pb.JobsService
+'{"id":1}' | grpcurl.exe -plaintext -d '@' 127.0.0.1:9090 pb.JobsService/GetJob
 ```
 
 HTTP → gRPC bridge demo endpoint:
@@ -344,7 +349,7 @@ private-key markers сканируются потоково, включая бо
 | `HTTP_TLS_CERT_FILE`                         |   string |                    *(пусто)* | Путь к PEM-сертификату сервера; обязателен при `HTTP_TLS_ENABLE=true`                  |
 | `HTTP_TLS_KEY_FILE`                          |   string |                    *(пусто)* | Путь к PEM-ключу сервера; обязателен при `HTTP_TLS_ENABLE=true`                        |
 | `GRPC_ENABLE`                                |     bool |                      `false` | Включить внутренний gRPC server                                                         |
-| `GRPC_ADDR`                                  |   string |                      `:9090` | Адрес gRPC listener; обязателен при `GRPC_ENABLE=true`                                  |
+| `GRPC_ADDR`                                  |   string |                      `:9090` | Адрес gRPC listener; для текущего plaintext/dev режима используй loopback                |
 | `STREAMING_SSE_HEARTBEAT`                    | duration |                        `15s` | Интервал heartbeat для SSE (`: heartbeat`)                                              |
 | `STREAMING_SUBSCRIBER_BUFFER`                |      int |                           16 | Размер bounded buffer на одного SSE subscriber                                          |
 | `STREAMING_WRITE_TIMEOUT`                    | duration |                        `10s` | Дедлайн записи одного SSE flush/write                                                   |
@@ -496,8 +501,8 @@ Readiness:
 - PostgreSQL backend включён по умолчанию: `STORAGE_BACKEND=postgres`; локальная БД должна быть доступна по `DB_DSN`.
 - In-memory backend включается только явно: `STORAGE_BACKEND=memory`; данные живут только в процессе.
 - HTTPS listener включается только при `HTTP_TLS_ENABLE=true` и требует `HTTP_TLS_CERT_FILE` + `HTTP_TLS_KEY_FILE`.
-- Direct gRPC server включается только при `GRPC_ENABLE=true`; HTTP bridge `/api/v1/jobs/{id}/grpc` без этого вернёт
-  ошибку недоступности bridge.
+- Direct gRPC server включается только при `GRPC_ENABLE=true`; до реализации mTLS/authz из ADR используй его только на
+  loopback. HTTP bridge `/api/v1/jobs/{id}/grpc` без этого вернёт ошибку недоступности bridge.
 - Debug routes `/debug/*` монтируются только при `HTTP_DEBUG=true` и требуют admin JWT.
 - Profile endpoint `/api/v1/users/{id}/profile` зарегистрирован в `cmd/api`, но для успешного ответа нужен upstream
   `OUTBOUND_PROFILE_BASE_URL` (`http://localhost:8090` по умолчанию).
