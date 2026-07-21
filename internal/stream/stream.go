@@ -24,6 +24,7 @@ var (
 type Hub struct {
 	mu               sync.Mutex
 	subs             map[int64]map[uint64]*subscriber
+	history          map[int64][]Event
 	nextID           uint64
 	subscriberBuffer int
 
@@ -64,6 +65,7 @@ func NewHub(subscriberBuffer int) *Hub {
 	return &Hub{
 		closed:           atomic.Bool{},
 		subs:             make(map[int64]map[uint64]*subscriber),
+		history:          make(map[int64][]Event),
 		subscriberBuffer: subscriberBuffer,
 	}
 }
@@ -86,6 +88,9 @@ func (h *Hub) Subscribe(jobID int64) (Subscription, func(), error) {
 			id:    id,
 			jobID: jobID,
 			ch:    ch,
+		}
+		for _, ev := range h.history[jobID] {
+			ch <- ev
 		}
 
 		h.subscribers++
@@ -129,6 +134,7 @@ func (h *Hub) Publish(jobID int64, ev Event) {
 	if !h.closed.Load() {
 		h.eventsTotal++
 		sseEventsTotal.Add("eventsTotal", 1)
+		h.recordHistoryLocked(jobID, ev)
 
 		for _, sub := range h.subs[jobID] {
 			select {
@@ -139,6 +145,14 @@ func (h *Hub) Publish(jobID int64, ev Event) {
 			}
 		}
 	}
+}
+
+func (h *Hub) recordHistoryLocked(jobID int64, ev Event) {
+	history := append(h.history[jobID], ev)
+	if len(history) > h.subscriberBuffer {
+		history = append([]Event(nil), history[len(history)-h.subscriberBuffer:]...)
+	}
+	h.history[jobID] = history
 }
 
 func (h *Hub) Subscribers() int64 {

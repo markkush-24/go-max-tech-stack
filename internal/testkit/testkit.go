@@ -157,10 +157,9 @@ func newApp(t *testing.T, opts ...Option) (*App, options) {
 	lim := middleware.NewRateLimitedAPI(o.rps, o.burst)
 	bh := middleware.NewBulkhead(o.bulkhead)
 
-	hub := stream.NewHub(16)
-	v1 := routes.NewUserHandler(userSvc, jobSvc, q, m, hub)
-	v2 := routes.NewUserV2Handler(userSvc, jobSvc, q, m, hub)
 	eventHub := stream.NewHub(16)
+	v1 := routes.NewUserHandler(userSvc, jobSvc, q, m, eventHub)
+	v2 := routes.NewUserV2Handler(userSvc, jobSvc, q, m, eventHub)
 	jh := routes.NewJobHandler(jobSvc, eventHub, 5*time.Second, 0*time.Second, nil)
 
 	app := &App{

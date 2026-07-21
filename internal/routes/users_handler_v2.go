@@ -11,7 +11,6 @@ import (
 	"pet-study/internal/security"
 	"pet-study/internal/service"
 	"pet-study/internal/stream"
-	"time"
 )
 
 type UsersV2Handler struct {
@@ -66,21 +65,16 @@ func (h *UsersV2Handler) Create(w http.ResponseWriter, r *http.Request) error {
 		if err := h.jobService.Save(r.Context(), &job); err != nil {
 			return err
 		}
-		item := queue.WorkItem{JobID: job.ID, Payload: inV1}
-		if enqueueErr := h.workerQueue.Enqueue(r.Context(), item); enqueueErr != nil {
+
+		publishQueuedJob(h.eventHub, h.jobsObserver, job.ID)
+
+		if enqueueErr := h.workerQueue.Enqueue(r.Context(), queue.WorkItem{JobID: job.ID, Payload: inV1}); enqueueErr != nil {
 			deleteErr := deleteJobAfterFailedEnqueue(r.Context(), h.jobService, job.ID)
 			if deleteErr != nil {
 				return errors.Join(enqueueErr, deleteErr)
 			}
 			return enqueueErr
 		}
-		h.jobsObserver.IncQueued()
-
-		h.eventHub.Publish(job.ID, stream.Event{
-			Type:  string(entity.JobQueued),
-			JobID: job.ID,
-			At:    time.Now(),
-		})
 
 		w.Header().Set("Location", fmt.Sprintf("/api/v1/jobs/%d", job.ID))
 		return httputils.WriteJSON(w, http.StatusAccepted, job)
