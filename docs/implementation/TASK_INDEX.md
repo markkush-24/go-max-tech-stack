@@ -48,7 +48,7 @@ Remove defects that can corrupt state, bypass security or make shutdown results 
 | [TASK-018](tasks/TASK-018-grpc-security-decision.md) | P0 | TASK-005 | DONE | Record the direct gRPC trust and exposure model |
 | [TASK-019](tasks/TASK-019-grpc-transport-security.md) | P0 | TASK-018, TASK-015 | DONE | Add gRPC TLS or mTLS and environment-controlled reflection |
 | [TASK-020](tasks/TASK-020-grpc-authz.md) | P0 | TASK-018, TASK-019 | DONE | Add gRPC authentication, RBAC and owner authorization |
-| [TASK-021](tasks/TASK-021-grpc-metadata-errors.md) | P0 | TASK-020 | READY | Normalize gRPC metadata, request ID, status codes and bridge timeout |
+| [TASK-021](tasks/TASK-021-grpc-metadata-errors.md) | P0 | TASK-020 | DONE | Normalize gRPC metadata, request ID, status codes and bridge timeout |
 | [TASK-022](tasks/TASK-022-production-security-guards.md) | P0 | TASK-005 | READY | Add environment guards for JWT, TLS, proxy and security-header defaults |
 
 ## P2 — Observability foundation
@@ -109,7 +109,7 @@ Make accepted asynchronous work recoverable and dependencies safely degradable.
 | [TASK-058](tasks/TASK-058-safe-retry-policy.md) | P1 | — | BACKLOG | Fix backoff overflow and honor bounded HTTP retry guidance |
 | [TASK-059](tasks/TASK-059-profile-resilience-controls.md) | P1 | TASK-058 | BLOCKED | Add Profile-specific connection bound, bulkhead, circuit breaker and retry budget |
 | [TASK-060](tasks/TASK-060-workload-admission-controls.md) | P1 | TASK-032 | BLOCKED | Split rate limits and bulkheads by workload, including SSE connections |
-| [TASK-061](tasks/TASK-061-dependency-error-taxonomy.md) | P1 | TASK-021 | BLOCKED | Normalize DB, context, outbound and gRPC error taxonomy |
+| [TASK-061](tasks/TASK-061-dependency-error-taxonomy.md) | P1 | TASK-021 | READY | Normalize DB, context, outbound and gRPC error taxonomy |
 | [TASK-062](tasks/TASK-062-readiness-reliability.md) | P1 | TASK-061 | BLOCKED | Add schema-aware, redacted and independently budgeted readiness checks |
 
 ## P5 — HTTP and streaming contracts

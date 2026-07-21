@@ -623,3 +623,28 @@ Notes:
 Unlocked tasks:
 - TASK-021
 ```
+
+```text
+Task: TASK-021
+Accepted: 2026-07-21
+Commit: 26ed7b00
+Reviewer: Mark
+Verification:
+- gofmt -w internal/interceptors/interceptors.go internal/interceptors/client_test.go internal/transport/grpcclient/grpcclient.go internal/transport/grpcclient/grpcclient_test.go internal/transport/grpcserver/grpc_job_service.go internal/transport/grpcserver/grpc_test.go internal/httputils/grpc_bridge_error.go internal/httputils/grpc_bridge_error_test.go internal/httputils/errmap.go internal/routes/job_handler.go internal/routes/job_handler_test.go: PASS
+- go test ./internal/interceptors/... ./internal/transport/grpcclient/... ./internal/transport/grpcserver/... ./internal/httputils/... ./internal/routes/...: PASS
+- go test ./internal/interceptors/... ./internal/transport/grpcclient/... ./internal/transport/grpcserver/...: PASS
+- go test ./...: PASS
+- go vet ./...: PASS
+- .\scripts\run-staticcheck.ps1: PASS
+- git diff --check: PASS
+- go test -race ./internal/interceptors/... ./internal/transport/grpcclient/... ./internal/transport/grpcserver/...: FAIL; local CGO_ENABLED=0 rejects -race
+- CGO_ENABLED=1 go test -race ./internal/interceptors/... ./internal/transport/grpcclient/... ./internal/transport/grpcserver/...: FAIL; local runtime/cgo could not find gcc in PATH
+Notes:
+- Normalized gRPC request-id handling so inbound metadata is sanitized and stable request-id metadata is returned to clients.
+- Added unary gRPC client request-id and timeout baseline, preserved existing outgoing metadata, and bounded the HTTP-to-gRPC bridge call.
+- Added deterministic bridge/server mapping for canceled, deadline, unavailable, permission, not-found and authentication outcomes.
+- Remaining limitations: the bridge/client call timeout is fixed rather than runtime-configurable; local Windows race verification requires CGO plus a C compiler.
+- Scope note: internal/routes/job_handler.go and internal/httputils/errmap.go were touched because the actual bridge call site and HTTP status mapping live there.
+Unlocked tasks:
+- TASK-061
+```
