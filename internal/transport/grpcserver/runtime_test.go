@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"pet-study/internal/security"
 	"pet-study/internal/service"
 	"pet-study/internal/store/jobrepo"
 	"sync"
@@ -23,7 +24,10 @@ func TestRuntimeNewRuntimeRejectsBindFailure(t *testing.T) {
 	defer listener.Close()
 
 	jobSvc := service.NewJobService(jobrepo.NewMemoryJobRepository())
-	_, err = NewRuntime(listener.Addr().String(), jobSvc, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	_, err = NewRuntimeWithConfig(Config{
+		Addr: listener.Addr().String(),
+		Auth: AuthConfig{Verifier: runtimeTestVerifier{}},
+	}, jobSvc, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err == nil {
 		t.Fatal("NewRuntime succeeded on an already-bound address")
 	}
@@ -228,3 +232,9 @@ type fakeAddr string
 
 func (a fakeAddr) Network() string { return "tcp" }
 func (a fakeAddr) String() string  { return string(a) }
+
+type runtimeTestVerifier struct{}
+
+func (runtimeTestVerifier) Verify(string) (security.Principal, error) {
+	return security.Principal{UserID: 999, Role: security.RoleAdmin}, nil
+}

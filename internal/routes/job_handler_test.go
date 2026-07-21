@@ -21,10 +21,14 @@ import (
 	"pet-study/internal/store/userrepo"
 	"pet-study/internal/stream"
 	"pet-study/internal/testkit"
+	"pet-study/internal/transport/pb"
 	"pet-study/internal/workerpool"
 	"time"
 
 	"testing"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
 )
 
 func TestQueueOverflowFastFail(t *testing.T) {
@@ -255,4 +259,47 @@ func TestJobNotFound(t *testing.T) {
 	if p.Status != http.StatusNotFound {
 		t.Fatalf("problem.status=%d want=%d", p.Status, http.StatusNotFound)
 	}
+}
+
+func TestJobHandlerGetByIDViaGRPCForwardsAuthorization(t *testing.T) {
+	jobSvc := service.NewJobService(jobrepo.NewMemoryJobRepository())
+	eventHub := stream.NewHub(16)
+	client := &recordingJobsClient{}
+	jh := routes.NewJobHandler(jobSvc, eventHub, 5*time.Second, 5*time.Second, client)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/123/grpc", nil)
+	req.Header.Set("Authorization", "Bearer test-token")
+	req = req.WithContext(requestid.WithRequestID(req.Context(), "rid-test"))
+
+	rec := httptest.NewRecorder()
+	if err := jh.GetByIDViaGRPC(rec, req, 123); err != nil {
+		t.Fatalf("GetByIDViaGRPC: %v", err)
+	}
+
+	if client.authorization != "Bearer test-token" {
+		t.Fatalf("authorization=%q want=%q", client.authorization, "Bearer test-token")
+	}
+	if client.requestID != "rid-test" {
+		t.Fatalf("requestID=%q want=%q", client.requestID, "rid-test")
+	}
+}
+
+type recordingJobsClient struct {
+	authorization string
+	requestID     string
+}
+
+func (c *recordingJobsClient) GetJob(ctx context.Context, req *pb.GetJobRequest, _ ...grpc.CallOption) (*pb.Job, error) {
+	md, _ := metadata.FromOutgoingContext(ctx)
+	if values := md.Get("authorization"); len(values) > 0 {
+		c.authorization = values[0]
+	}
+	if values := md.Get("request-id"); len(values) > 0 {
+		c.requestID = values[0]
+	}
+
+	return &pb.Job{
+		Id:     req.GetId(),
+		Status: pb.JobStatus_JOB_STATUS_SUCCEEDED,
+	}, nil
 }

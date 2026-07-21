@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"pet-study/internal/entity"
+	"pet-study/internal/security"
 	"pet-study/internal/service"
 	"pet-study/internal/transport/pb"
 
@@ -23,6 +24,11 @@ func NewJobServer(jobService *service.JobService) *JobGRPCService {
 // GetJob retrieves a job by ID. It returns a NotFound error if the job
 // does not exist.
 func (s *JobGRPCService) GetJob(ctx context.Context, req *pb.GetJobRequest) (*pb.Job, error) {
+	principal, ok := security.FromContext(ctx)
+	if !ok {
+		return nil, status.Error(codes.Unauthenticated, "authentication required")
+	}
+
 	// Validate the request
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request must not be nil")
@@ -38,6 +44,10 @@ func (s *JobGRPCService) GetJob(ctx context.Context, req *pb.GetJobRequest) (*pb
 			return nil, status.Errorf(codes.NotFound, "job with ID %d not found", req.Id)
 		}
 		return nil, status.Error(codes.Internal, "internal error")
+	}
+
+	if !security.CanReadJob(principal, job.OwnerUserID) {
+		return nil, status.Error(codes.PermissionDenied, "permission denied")
 	}
 
 	return &pb.Job{

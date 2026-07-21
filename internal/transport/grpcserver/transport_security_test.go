@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"pet-study/internal/entity"
+	"pet-study/internal/security"
 	"pet-study/internal/service"
 	"pet-study/internal/store/jobrepo"
 	"pet-study/internal/transport/grpcclient"
@@ -58,11 +59,19 @@ func TestRuntimeMTLSAcceptsConfiguredClientAndRejectsPlaintext(t *testing.T) {
 	}
 	defer conn.Close()
 
+	unauthCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+	_, err = client.GetJob(unauthCtx, &pb.GetJobRequest{Id: job.ID})
+	cancel()
+	if status.Code(err) != codes.Unauthenticated {
+		t.Fatalf("mTLS without bearer code=%v err=%v want %v", status.Code(err), err, codes.Unauthenticated)
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
+	ctx = grpcAuthorizedContext(ctx, testAdminToken)
 	resp, err := client.GetJob(ctx, &pb.GetJobRequest{Id: job.ID})
 	if err != nil {
-		t.Fatalf("mTLS GetJob: %v", err)
+		t.Fatalf("mTLS authenticated GetJob: %v", err)
 	}
 	if resp.GetId() != job.ID {
 		t.Fatalf("job id=%d want %d", resp.GetId(), job.ID)
@@ -133,6 +142,7 @@ func TestRuntimeReflectionDisabledByDefaultAndExplicitlyEnabledOnLoopback(t *tes
 	devRuntime, err := grpcserver.NewRuntimeWithConfig(grpcserver.Config{
 		Addr:              "127.0.0.1:0",
 		ReflectionEnabled: true,
+		Auth:              grpcRuntimeAuth(),
 	}, jobSvc, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatalf("NewRuntimeWithConfig dev reflection: %v", err)
@@ -170,6 +180,7 @@ func TestRuntimeRejectsInsecureProtectedAndMisconfiguredTLS(t *testing.T) {
 
 	_, err := grpcserver.NewRuntimeWithConfig(grpcserver.Config{
 		Addr: ":0",
+		Auth: grpcRuntimeAuth(),
 	}, jobSvc, logger)
 	if err == nil || !strings.Contains(err.Error(), "plaintext grpc requires") {
 		t.Fatalf("plaintext wildcard error=%v want plaintext loopback validation", err)
@@ -177,6 +188,7 @@ func TestRuntimeRejectsInsecureProtectedAndMisconfiguredTLS(t *testing.T) {
 
 	_, err = grpcserver.NewRuntimeWithConfig(grpcserver.Config{
 		Addr: "127.0.0.1:0",
+		Auth: grpcRuntimeAuth(),
 		TLS:  grpcserver.TLSConfig{Enable: true},
 	}, jobSvc, logger)
 	if err == nil || !strings.Contains(err.Error(), "GRPC_TLS_CERT_FILE") {
@@ -186,10 +198,18 @@ func TestRuntimeRejectsInsecureProtectedAndMisconfiguredTLS(t *testing.T) {
 	_, err = grpcserver.NewRuntimeWithConfig(grpcserver.Config{
 		Addr:              ":0",
 		ReflectionEnabled: true,
+		Auth:              grpcRuntimeAuth(),
 		TLS:               grpcserver.TLSConfig{Enable: true},
 	}, jobSvc, logger)
 	if err == nil || !strings.Contains(err.Error(), "grpc reflection requires") {
 		t.Fatalf("reflection non-loopback error=%v want reflection loopback validation", err)
+	}
+
+	_, err = grpcserver.NewRuntimeWithConfig(grpcserver.Config{
+		Addr: "127.0.0.1:0",
+	}, jobSvc, logger)
+	if err == nil || !strings.Contains(err.Error(), "grpc auth") {
+		t.Fatalf("missing auth error=%v want grpc auth validation", err)
 	}
 }
 
@@ -199,6 +219,7 @@ func startSecureRuntime(t *testing.T, jobSvc *service.JobService, files mtlsFile
 	runtime, err := grpcserver.NewRuntimeWithConfig(grpcserver.Config{
 		Addr:              "127.0.0.1:0",
 		ReflectionEnabled: reflection,
+		Auth:              grpcRuntimeAuth(),
 		TLS: grpcserver.TLSConfig{
 			Enable:       true,
 			CertFile:     files.serverCert,
@@ -218,6 +239,16 @@ func startSecureRuntime(t *testing.T, jobSvc *service.JobService, files mtlsFile
 		_ = runtime.Shutdown(ctx)
 	})
 	return runtime
+}
+
+func grpcRuntimeAuth() grpcserver.AuthConfig {
+	return grpcserver.AuthConfig{
+		Verifier: grpcTestVerifier{
+			tokens: map[string]security.Principal{
+				testAdminToken: {UserID: 999, Role: security.RoleAdmin},
+			},
+		},
+	}
 }
 
 func newMTLSConn(t *testing.T, addr string, files mtlsFiles, serverName string) *grpc.ClientConn {

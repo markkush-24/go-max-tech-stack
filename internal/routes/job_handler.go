@@ -10,6 +10,7 @@ import (
 	"pet-study/internal/service"
 	"pet-study/internal/stream"
 	"pet-study/internal/transport/pb"
+	"strings"
 	"time"
 
 	"google.golang.org/grpc/codes"
@@ -63,8 +64,15 @@ func (h *JobHandler) GetByID(w http.ResponseWriter, r *http.Request, id int) err
 func (h *JobHandler) GetByIDViaGRPC(w http.ResponseWriter, r *http.Request, id int64) error {
 	ctx := r.Context()
 
+	metadataPairs := make([]string, 0, 4)
 	if reqID, ok := requestid.RequestID(ctx); ok && reqID != "" {
-		ctx = metadata.NewOutgoingContext(ctx, metadata.Pairs("request-id", reqID))
+		metadataPairs = append(metadataPairs, "request-id", reqID)
+	}
+	if authorization := strings.TrimSpace(r.Header.Get("Authorization")); authorization != "" {
+		metadataPairs = append(metadataPairs, "authorization", authorization)
+	}
+	if len(metadataPairs) > 0 {
+		ctx = metadata.NewOutgoingContext(ctx, metadata.Pairs(metadataPairs...))
 	}
 
 	if h.jobGRPCClient == nil {

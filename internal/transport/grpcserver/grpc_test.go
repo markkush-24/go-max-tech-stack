@@ -7,6 +7,7 @@ import (
 	"net"
 	"pet-study/internal/entity"
 	"pet-study/internal/interceptors"
+	"pet-study/internal/security"
 	"pet-study/internal/service"
 	"pet-study/internal/store/jobrepo"
 	"pet-study/internal/transport/grpcserver"
@@ -23,14 +24,26 @@ import (
 )
 
 const bufSize = 1024 * 1024
+const testAdminToken = "admin-token"
 
-func newBufconnJobsClient(t *testing.T, jobSvc *service.JobService, logger *slog.Logger) (pb.JobsServiceClient, func()) {
+func newBufconnJobsClient(
+	t *testing.T,
+	jobSvc *service.JobService,
+	logger *slog.Logger,
+	verifier security.Verifier,
+) (pb.JobsServiceClient, func()) {
 	t.Helper()
+
+	authInterceptor, err := interceptors.UnaryAuthenticate(verifier)
+	if err != nil {
+		t.Fatalf("UnaryAuthenticate: %v", err)
+	}
 
 	lis := bufconn.Listen(bufSize)
 	server := grpc.NewServer(
 		grpc.ChainUnaryInterceptor(
 			interceptors.UnaryRequestIDAndLogging(logger),
+			authInterceptor,
 		),
 	)
 	pb.RegisterJobsServiceServer(server, grpcserver.NewJobServer(jobSvc))
@@ -63,6 +76,31 @@ func newBufconnJobsClient(t *testing.T, jobSvc *service.JobService, logger *slog
 	return pb.NewJobsServiceClient(conn), cleanup
 }
 
+func newDefaultBufconnJobsClient(t *testing.T, jobSvc *service.JobService, logger *slog.Logger) (pb.JobsServiceClient, func()) {
+	t.Helper()
+
+	return newBufconnJobsClient(t, jobSvc, logger, grpcTestVerifier{
+		tokens: map[string]security.Principal{
+			testAdminToken: {UserID: 999, Role: security.RoleAdmin},
+		},
+	})
+}
+
+func grpcAuthorizedContext(ctx context.Context, token string) context.Context {
+	return metadata.NewOutgoingContext(ctx, metadata.Pairs("authorization", "Bearer "+token))
+}
+
+type grpcTestVerifier struct {
+	tokens map[string]security.Principal
+}
+
+func (v grpcTestVerifier) Verify(token string) (security.Principal, error) {
+	if principal, ok := v.tokens[token]; ok {
+		return principal, nil
+	}
+	return security.Principal{}, &security.AuthNError{Kind: security.AuthNInvalid}
+}
+
 func TestJobsServiceGetJob_Success_LogsRequestID(t *testing.T) {
 	jobRepo := jobrepo.NewMemoryJobRepository()
 	jobSvc := service.NewJobService(jobRepo)
@@ -73,10 +111,13 @@ func TestJobsServiceGetJob_Success_LogsRequestID(t *testing.T) {
 
 	var logs bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&logs, nil))
-	client, cleanup := newBufconnJobsClient(t, jobSvc, logger)
+	client, cleanup := newDefaultBufconnJobsClient(t, jobSvc, logger)
 	defer cleanup()
 
-	ctx := metadata.NewOutgoingContext(context.Background(), metadata.Pairs("request-id", "rid-test-1"))
+	ctx := metadata.NewOutgoingContext(context.Background(), metadata.Pairs(
+		"request-id", "rid-test-1",
+		"authorization", "Bearer "+testAdminToken,
+	))
 	resp, err := client.GetJob(ctx, &pb.GetJobRequest{Id: job.ID})
 	if err != nil {
 		t.Fatalf("GetJob: %v", err)
@@ -103,10 +144,10 @@ func TestJobsServiceGetJob_Success_LogsRequestID(t *testing.T) {
 func TestJobsServiceGetJob_InvalidArgument(t *testing.T) {
 	jobSvc := service.NewJobService(jobrepo.NewMemoryJobRepository())
 	logger := slog.New(slog.NewTextHandler(ioDiscard{}, nil))
-	client, cleanup := newBufconnJobsClient(t, jobSvc, logger)
+	client, cleanup := newDefaultBufconnJobsClient(t, jobSvc, logger)
 	defer cleanup()
 
-	_, err := client.GetJob(context.Background(), &pb.GetJobRequest{Id: 0})
+	_, err := client.GetJob(grpcAuthorizedContext(context.Background(), testAdminToken), &pb.GetJobRequest{Id: 0})
 	if status.Code(err) != codes.InvalidArgument {
 		t.Fatalf("code=%v want=%v err=%v", status.Code(err), codes.InvalidArgument, err)
 	}
@@ -115,10 +156,10 @@ func TestJobsServiceGetJob_InvalidArgument(t *testing.T) {
 func TestJobsServiceGetJob_NotFound(t *testing.T) {
 	jobSvc := service.NewJobService(jobrepo.NewMemoryJobRepository())
 	logger := slog.New(slog.NewTextHandler(ioDiscard{}, nil))
-	client, cleanup := newBufconnJobsClient(t, jobSvc, logger)
+	client, cleanup := newDefaultBufconnJobsClient(t, jobSvc, logger)
 	defer cleanup()
 
-	_, err := client.GetJob(context.Background(), &pb.GetJobRequest{Id: 999999})
+	_, err := client.GetJob(grpcAuthorizedContext(context.Background(), testAdminToken), &pb.GetJobRequest{Id: 999999})
 	if status.Code(err) != codes.NotFound {
 		t.Fatalf("code=%v want=%v err=%v", status.Code(err), codes.NotFound, err)
 	}

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"pet-study/internal/interceptors"
+	"pet-study/internal/security"
 	"pet-study/internal/service"
 	"pet-study/internal/transport/pb"
 	"strings"
@@ -40,7 +41,12 @@ type grpcRuntimeServer interface {
 type Config struct {
 	Addr              string
 	ReflectionEnabled bool
+	Auth              AuthConfig
 	TLS               TLSConfig
+}
+
+type AuthConfig struct {
+	Verifier security.Verifier
 }
 
 type TLSConfig struct {
@@ -79,9 +85,15 @@ func NewRuntimeWithConfig(cfg Config, jobService *service.JobService, logger *sl
 		return nil, fmt.Errorf("grpc reflection requires a loopback listener")
 	}
 
+	authInterceptor, err := interceptors.UnaryAuthenticate(cfg.Auth.Verifier)
+	if err != nil {
+		return nil, err
+	}
+
 	serverOptions := []grpc.ServerOption{
 		grpc.ChainUnaryInterceptor(
 			interceptors.UnaryRequestIDAndLogging(logger),
+			authInterceptor,
 		),
 	}
 

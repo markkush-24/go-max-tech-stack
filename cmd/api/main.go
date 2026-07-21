@@ -126,6 +126,22 @@ func run() error {
 		instrumented,
 	)
 
+	keys := make([]security.HMACKey, 0, len(cfg.Auth.JWT.Keys))
+	for _, k := range cfg.Auth.JWT.Keys {
+		keys = append(keys, security.HMACKey{KID: k.KID, Secret: []byte(k.Secret)})
+	}
+
+	verifier, err := security.NewJWTVerifierHS256(
+		cfg.Auth.JWT.AllowedAlg,
+		cfg.Auth.JWT.Issuer,
+		cfg.Auth.JWT.Audience,
+		cfg.Auth.JWT.ClockSkew,
+		keys,
+	)
+	if err != nil {
+		return err
+	}
+
 	var (
 		grpcRuntime    *grpcserver.Runtime
 		jobsGRPCClient pb.JobsServiceClient
@@ -137,6 +153,9 @@ func run() error {
 		grpcRuntime, err = grpcserver.NewRuntimeWithConfig(grpcserver.Config{
 			Addr:              cfg.GRPC.Addr,
 			ReflectionEnabled: cfg.GRPC.ReflectionEnable,
+			Auth: grpcserver.AuthConfig{
+				Verifier: verifier,
+			},
 			TLS: grpcserver.TLSConfig{
 				Enable:       cfg.GRPC.TLS.Enable,
 				CertFile:     cfg.GRPC.TLS.CertFile,
@@ -195,22 +214,6 @@ func run() error {
 		cfg.Streaming.WriteTimeout,
 		jobsGRPCClient,
 	)
-
-	keys := make([]security.HMACKey, 0, len(cfg.Auth.JWT.Keys))
-	for _, k := range cfg.Auth.JWT.Keys {
-		keys = append(keys, security.HMACKey{KID: k.KID, Secret: []byte(k.Secret)})
-	}
-
-	verifier, err := security.NewJWTVerifierHS256(
-		cfg.Auth.JWT.AllowedAlg,
-		cfg.Auth.JWT.Issuer,
-		cfg.Auth.JWT.Audience,
-		cfg.Auth.JWT.ClockSkew,
-		keys,
-	)
-	if err != nil {
-		return err
-	}
 
 	authAPI, err := middleware.NewAuthAPI(verifier)
 	if err != nil {
