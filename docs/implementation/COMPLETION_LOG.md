@@ -396,3 +396,26 @@ Notes:
 Unlocked tasks:
 - TASK-012
 ```
+
+```text
+Task: TASK-012
+Accepted: 2026-07-21
+Commit: 4d6b731b
+Reviewer: Mark
+Verification:
+- go test -count=1 -v ./internal/workerpool/...: PASS
+- go test ./internal/workerpool/... ./internal/store/jobrepo/...: PASS
+- go test ./...: PASS
+- go vet ./internal/workerpool/... ./internal/store/jobrepo/...: PASS
+- go test -race ./internal/workerpool/... ./internal/store/jobrepo/...: FAIL; local CGO_ENABLED=0 rejects -race
+- CGO_ENABLED=1 go test -race ./internal/workerpool/... ./internal/store/jobrepo/...: FAIL; local runtime/cgo could not find gcc in PATH
+- git diff --check: PASS
+Notes:
+- Made WorkerPool Stop completion idempotent with cached StopOutcome.
+- Removed the generation waiter goroutine by closing generation done from worker completion accounting.
+- Split worker wait from terminal repair using detached bounded repair contexts.
+- Replaced unbounded context.Background terminal failure writes with bounded repair context.
+- Remaining limitation: local Windows race verification requires CGO plus a C compiler.
+Unlocked tasks:
+- none
+```
