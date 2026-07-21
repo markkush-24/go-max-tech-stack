@@ -45,6 +45,28 @@ func TestSecurityHeaders_On200_HTTP_NoHSTS(t *testing.T) {
 	}
 }
 
+func TestSecurityHeaders_UsesConfiguredReferrerPolicy(t *testing.T) {
+	sec := NewSecurityHeaders(config.SecurityHeadersConfig{
+		Enable:         true,
+		ReferrerPolicy: "strict-origin-when-cross-origin",
+	})
+
+	h := sec.SecurityHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/1", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status=%d want=%d", rec.Code, http.StatusNoContent)
+	}
+	if got := rec.Header().Get("Referrer-Policy"); got != "strict-origin-when-cross-origin" {
+		t.Fatalf("Referrer-Policy=%q want=%q", got, "strict-origin-when-cross-origin")
+	}
+}
+
 func TestSecurityHeaders_HSTS_OnEffectiveHTTPS(t *testing.T) {
 	sec := NewSecurityHeaders(config.SecurityHeadersConfig{
 		Enable:         true,

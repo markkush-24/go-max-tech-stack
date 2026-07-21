@@ -1,6 +1,7 @@
 package config
 
 import (
+	"crypto/tls"
 	"fmt"
 	"net"
 	"net/http"
@@ -11,6 +12,19 @@ import (
 	"strings"
 	"time"
 )
+
+const (
+	EnvironmentDevelopment = "development"
+	EnvironmentTest        = "test"
+	EnvironmentStaging     = "staging"
+	EnvironmentProduction  = "production"
+
+	MinimumTLSVersion = tls.VersionTLS12
+)
+
+type RuntimeConfig struct {
+	Environment string
+}
 
 type HTTPConfig struct {
 	Addr              string
@@ -26,10 +40,11 @@ type HTTPConfig struct {
 }
 
 type TLSConfig struct {
-	Enable   bool
-	Addr     string
-	CertFile string
-	KeyFile  string
+	Enable     bool
+	Addr       string
+	CertFile   string
+	KeyFile    string
+	MinVersion uint16
 }
 
 type GRPCConfig struct {
@@ -150,6 +165,7 @@ type SecurityHeadersConfig struct {
 }
 
 type Config struct {
+	Runtime         RuntimeConfig
 	HTTP            HTTPConfig
 	DB              DBConfig
 	Pool            WorkerPoolConfig
@@ -166,6 +182,9 @@ type Config struct {
 
 func defaultConfig() Config {
 	return Config{
+		Runtime: RuntimeConfig{
+			Environment: EnvironmentDevelopment,
+		},
 		HTTP: HTTPConfig{
 			Addr:              ":8080",
 			ReadHeaderTimeout: 5 * time.Second,
@@ -176,10 +195,11 @@ func defaultConfig() Config {
 			MaxHeaderBytes:    http.DefaultMaxHeaderBytes,
 			Debug:             false,
 			TLS: TLSConfig{
-				Enable:   false,
-				Addr:     ":8443",
-				CertFile: "",
-				KeyFile:  "",
+				Enable:     false,
+				Addr:       ":8443",
+				CertFile:   "",
+				KeyFile:    "",
+				MinVersion: MinimumTLSVersion,
 			},
 		},
 		DB: DBConfig{
@@ -284,12 +304,26 @@ func Load() (Config, error) {
 
 	var err error
 
+	cfg.Runtime.Environment, err = lookupStringNonEmpty("APP_ENV", cfg.Runtime.Environment)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.Runtime.Environment = strings.ToLower(strings.TrimSpace(cfg.Runtime.Environment))
+	if err := validateEnvironment(cfg.Runtime.Environment); err != nil {
+		return Config{}, err
+	}
+
 	cfg.HTTP.Addr, err = lookupStringNonEmpty("HTTP_ADDR", cfg.HTTP.Addr)
 	if err != nil {
 		return Config{}, err
 	}
 
 	cfg.HTTP.TLS.Enable, err = lookupBool("HTTP_TLS_ENABLE", cfg.HTTP.TLS.Enable)
+	if err != nil {
+		return Config{}, err
+	}
+
+	cfg.HTTP.TLS.MinVersion, err = lookupTLSMinVersion("HTTP_TLS_MIN_VERSION", cfg.HTTP.TLS.MinVersion)
 	if err != nil {
 		return Config{}, err
 	}
@@ -676,6 +710,9 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	if err := validateReferrerPolicy(cfg.SecurityHeaders.ReferrerPolicy); err != nil {
+		return Config{}, err
+	}
 
 	cfg.SecurityHeaders.HSTS.Enable, err = lookupBool(
 		"SECURITY_HEADERS_HSTS_ENABLE", cfg.SecurityHeaders.HSTS.Enable)
@@ -690,6 +727,10 @@ func Load() (Config, error) {
 	}
 	if cfg.SecurityHeaders.HSTS.Enable && cfg.SecurityHeaders.HSTS.MaxAge <= 0 {
 		return Config{}, fmt.Errorf("SECURITY_HEADERS_HSTS_ENABLE=true требует SECURITY_HEADERS_HSTS_MAX_AGE > 0")
+	}
+
+	if err := validateSecurityProfile(cfg); err != nil {
+		return Config{}, err
 	}
 
 	return cfg, nil
@@ -778,6 +819,23 @@ func lookupBool(key string, def bool) (bool, error) {
 		return false, fmt.Errorf("%s=%q: parse bool: %w", key, v, err)
 	}
 	return b, nil
+}
+
+func lookupTLSMinVersion(key string, def uint16) (uint16, error) {
+	v, ok := os.LookupEnv(key)
+	if !ok {
+		return def, nil
+	}
+	raw := strings.TrimSpace(v)
+	normalized := strings.ToLower(strings.ReplaceAll(raw, " ", ""))
+	switch normalized {
+	case "1.2", "tls1.2", "tls12":
+		return tls.VersionTLS12, nil
+	case "1.3", "tls1.3", "tls13":
+		return tls.VersionTLS13, nil
+	default:
+		return 0, fmt.Errorf("%s=%q: unsupported TLS minimum; expected 1.2 or 1.3", key, raw)
+	}
 }
 
 func lookupURLAbsoluteParsed(key, def string) (*url.URL, error) {
@@ -878,6 +936,118 @@ func containsString(xs []string, s string) bool {
 		}
 	}
 	return false
+}
+
+func validateEnvironment(env string) error {
+	switch env {
+	case EnvironmentDevelopment, EnvironmentTest, EnvironmentStaging, EnvironmentProduction:
+		return nil
+	default:
+		return fmt.Errorf("APP_ENV=%q: unsupported environment (allowed: development, test, staging, production)", env)
+	}
+}
+
+func validateSecurityProfile(cfg Config) error {
+	if err := validateJWTEnvironment(cfg.Runtime.Environment, cfg.Auth.JWT); err != nil {
+		return err
+	}
+	if err := ValidateTrustedProxyRequirements(cfg.Proxy); err != nil {
+		return err
+	}
+	if !isProtectedEnvironment(cfg.Runtime.Environment) {
+		return nil
+	}
+	if cfg.HTTP.TLS.MinVersion < MinimumTLSVersion {
+		return fmt.Errorf("HTTP_TLS_MIN_VERSION=%s is below required TLS 1.2 when APP_ENV=%s",
+			tlsVersionName(cfg.HTTP.TLS.MinVersion), cfg.Runtime.Environment)
+	}
+	if !cfg.SecurityHeaders.Enable {
+		return fmt.Errorf("SECURITY_HEADERS_ENABLE=false is not allowed when APP_ENV=%s", cfg.Runtime.Environment)
+	}
+	return validateProtectedJWT(cfg.Runtime.Environment, cfg.Auth.JWT)
+}
+
+func validateJWTEnvironment(env string, jwt JWTConfig) error {
+	if env == EnvironmentDevelopment {
+		return nil
+	}
+	for _, key := range jwt.Keys {
+		if isDevelopmentJWTSecret(key.Secret) {
+			return fmt.Errorf("AUTH_JWT_KEYS key kid=%q uses a known development secret when APP_ENV=%s", key.KID, env)
+		}
+	}
+	return nil
+}
+
+func validateProtectedJWT(env string, jwt JWTConfig) error {
+	if strings.TrimSpace(jwt.Issuer) == "" {
+		return fmt.Errorf("AUTH_JWT_ISSUER is required when APP_ENV=%s", env)
+	}
+	if strings.TrimSpace(jwt.Audience) == "" {
+		return fmt.Errorf("AUTH_JWT_AUDIENCE is required when APP_ENV=%s", env)
+	}
+	for _, key := range jwt.Keys {
+		if len([]byte(key.Secret)) < 32 {
+			return fmt.Errorf("AUTH_JWT_KEYS key kid=%q has %d bytes; APP_ENV=%s requires at least 32 bytes for HS256",
+				key.KID, len([]byte(key.Secret)), env)
+		}
+	}
+	return nil
+}
+
+func isDevelopmentJWTSecret(secret string) bool {
+	switch strings.ToLower(strings.TrimSpace(secret)) {
+	case "dev-secret", "test-secret", "local-secret", "secret", "password", "changeme", "change-me":
+		return true
+	default:
+		return false
+	}
+}
+
+func ValidateTrustedProxyRequirements(cfg ProxyConfig) error {
+	if !cfg.TrustXFF && !cfg.TrustXFP {
+		return nil
+	}
+	if len(cfg.TrustedProxies) == 0 {
+		return fmt.Errorf("PROXY_TRUSTED_PROXIES is required when PROXY_TRUST_XFF=true or PROXY_TRUST_XFP=true")
+	}
+	for _, proxy := range cfg.TrustedProxies {
+		if proxy.Bits() == 0 {
+			return fmt.Errorf("PROXY_TRUSTED_PROXIES=%q trusts every address; use explicit proxy CIDR/IP ranges", proxy.String())
+		}
+	}
+	return nil
+}
+
+func isProtectedEnvironment(env string) bool {
+	return env == EnvironmentStaging || env == EnvironmentProduction
+}
+
+func validateReferrerPolicy(policy string) error {
+	switch strings.TrimSpace(policy) {
+	case "no-referrer",
+		"no-referrer-when-downgrade",
+		"origin",
+		"origin-when-cross-origin",
+		"same-origin",
+		"strict-origin",
+		"strict-origin-when-cross-origin",
+		"unsafe-url":
+		return nil
+	default:
+		return fmt.Errorf("SECURITY_HEADERS_REFERRER_POLICY=%q: unsupported policy", policy)
+	}
+}
+
+func tlsVersionName(version uint16) string {
+	switch version {
+	case tls.VersionTLS12:
+		return "1.2"
+	case tls.VersionTLS13:
+		return "1.3"
+	default:
+		return fmt.Sprintf("0x%04x", version)
+	}
 }
 
 func validateJWTAlg(alg string) error {

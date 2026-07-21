@@ -1,6 +1,7 @@
 package config
 
 import (
+	"crypto/tls"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -79,6 +80,8 @@ var validConfigEnv = []envKV{
 }
 
 var optionalConfigEnv = []envKV{
+	{"APP_ENV", "development"},
+	{"HTTP_TLS_MIN_VERSION", "1.2"},
 	{"GRPC_REFLECTION_ENABLE", "false"},
 	{"GRPC_TLS_ENABLE", "false"},
 	{"GRPC_TLS_CERT_FILE", "certs/grpc-server.pem"},
@@ -98,6 +101,9 @@ func TestLoad_Defaults(t *testing.T) {
 		t.Fatalf("Load() error = %v", err)
 	}
 
+	if cfg.Runtime.Environment != EnvironmentDevelopment {
+		t.Fatalf("Runtime.Environment=%q want=%q", cfg.Runtime.Environment, EnvironmentDevelopment)
+	}
 	if cfg.HTTP.Addr != ":8080" {
 		t.Fatalf("HTTP.Addr=%q want=:8080", cfg.HTTP.Addr)
 	}
@@ -114,7 +120,11 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.HTTP.Debug {
 		t.Fatalf("HTTP.Debug=true want=false")
 	}
-	if cfg.HTTP.TLS.Enable || cfg.HTTP.TLS.Addr != ":8443" || cfg.HTTP.TLS.CertFile != "" || cfg.HTTP.TLS.KeyFile != "" {
+	if cfg.HTTP.TLS.Enable ||
+		cfg.HTTP.TLS.Addr != ":8443" ||
+		cfg.HTTP.TLS.CertFile != "" ||
+		cfg.HTTP.TLS.KeyFile != "" ||
+		cfg.HTTP.TLS.MinVersion != tls.VersionTLS12 {
 		t.Fatalf("HTTP.TLS=%+v", cfg.HTTP.TLS)
 	}
 	if cfg.GRPC.Enable ||
@@ -261,17 +271,19 @@ func TestLoad_OptionalTransports(t *testing.T) {
 		{
 			name: "TLS enabled",
 			env: map[string]string{
-				"HTTP_TLS_ENABLE":    "true",
-				"HTTP_TLS_ADDR":      ":18443",
-				"HTTP_TLS_CERT_FILE": "certs/localhost.pem",
-				"HTTP_TLS_KEY_FILE":  "certs/localhost-key.pem",
+				"HTTP_TLS_ENABLE":      "true",
+				"HTTP_TLS_ADDR":        ":18443",
+				"HTTP_TLS_CERT_FILE":   "certs/localhost.pem",
+				"HTTP_TLS_KEY_FILE":    "certs/localhost-key.pem",
+				"HTTP_TLS_MIN_VERSION": "1.3",
 			},
 			assert: func(t *testing.T, cfg Config) {
 				t.Helper()
 				if !cfg.HTTP.TLS.Enable ||
 					cfg.HTTP.TLS.Addr != ":18443" ||
 					cfg.HTTP.TLS.CertFile != "certs/localhost.pem" ||
-					cfg.HTTP.TLS.KeyFile != "certs/localhost-key.pem" {
+					cfg.HTTP.TLS.KeyFile != "certs/localhost-key.pem" ||
+					cfg.HTTP.TLS.MinVersion != tls.VersionTLS13 {
 					t.Fatalf("HTTP.TLS=%+v", cfg.HTTP.TLS)
 				}
 			},
@@ -361,9 +373,19 @@ func TestLoad_InvalidEnvironment(t *testing.T) {
 			wantErr: "HTTP_DEBUG",
 		},
 		{
+			name:    "unsupported app environment",
+			env:     map[string]string{"APP_ENV": "prod"},
+			wantErr: "APP_ENV",
+		},
+		{
 			name:    "TLS enabled missing cert",
 			env:     map[string]string{"HTTP_TLS_ENABLE": "true", "HTTP_TLS_CERT_FILE": ""},
 			wantErr: "HTTP_TLS_CERT_FILE",
+		},
+		{
+			name:    "unsupported HTTP TLS minimum",
+			env:     map[string]string{"HTTP_TLS_MIN_VERSION": "1.1"},
+			wantErr: "HTTP_TLS_MIN_VERSION",
 		},
 		{
 			name:    "gRPC enabled empty address",
@@ -530,9 +552,19 @@ func TestLoad_InvalidEnvironment(t *testing.T) {
 			wantErr: "PROXY_TRUSTED_PROXIES",
 		},
 		{
+			name:    "wildcard trusted proxy",
+			env:     map[string]string{"PROXY_TRUSTED_PROXIES": "0.0.0.0/0"},
+			wantErr: "PROXY_TRUSTED_PROXIES",
+		},
+		{
 			name:    "empty trusted proxy",
 			env:     map[string]string{"PROXY_TRUSTED_PROXIES": ""},
 			wantErr: "PROXY_TRUSTED_PROXIES",
+		},
+		{
+			name:    "unsupported referrer policy",
+			env:     map[string]string{"SECURITY_HEADERS_REFERRER_POLICY": "bad-policy"},
+			wantErr: "SECURITY_HEADERS_REFERRER_POLICY",
 		},
 		{
 			name: "HSTS enabled without max age",
@@ -559,6 +591,130 @@ func TestLoad_InvalidEnvironment(t *testing.T) {
 				t.Fatalf("error=%q want mention of %q", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestLoad_SecurityProfileGuards(t *testing.T) {
+	const strongJWTKeys = "main:0123456789abcdef0123456789abcdef"
+
+	tests := []struct {
+		name    string
+		env     map[string]string
+		wantErr string
+	}{
+		{
+			name: "production rejects known development JWT secret",
+			env: map[string]string{
+				"APP_ENV":           EnvironmentProduction,
+				"AUTH_JWT_ISSUER":   "issuer",
+				"AUTH_JWT_AUDIENCE": "audience",
+			},
+			wantErr: "AUTH_JWT_KEYS",
+		},
+		{
+			name: "test rejects known development JWT secret",
+			env: map[string]string{
+				"APP_ENV": EnvironmentTest,
+			},
+			wantErr: "AUTH_JWT_KEYS",
+		},
+		{
+			name: "production requires JWT issuer",
+			env: map[string]string{
+				"APP_ENV":           EnvironmentProduction,
+				"AUTH_JWT_AUDIENCE": "audience",
+				"AUTH_JWT_KEYS":     strongJWTKeys,
+			},
+			wantErr: "AUTH_JWT_ISSUER",
+		},
+		{
+			name: "production requires JWT audience",
+			env: map[string]string{
+				"APP_ENV":         EnvironmentProduction,
+				"AUTH_JWT_ISSUER": "issuer",
+				"AUTH_JWT_KEYS":   strongJWTKeys,
+			},
+			wantErr: "AUTH_JWT_AUDIENCE",
+		},
+		{
+			name: "production rejects short JWT key",
+			env: map[string]string{
+				"APP_ENV":           EnvironmentProduction,
+				"AUTH_JWT_ISSUER":   "issuer",
+				"AUTH_JWT_AUDIENCE": "audience",
+				"AUTH_JWT_KEYS":     "main:short-secret",
+			},
+			wantErr: "AUTH_JWT_KEYS",
+		},
+		{
+			name: "production rejects disabled security headers",
+			env: map[string]string{
+				"APP_ENV":                 EnvironmentProduction,
+				"AUTH_JWT_ISSUER":         "issuer",
+				"AUTH_JWT_AUDIENCE":       "audience",
+				"AUTH_JWT_KEYS":           strongJWTKeys,
+				"SECURITY_HEADERS_ENABLE": "false",
+			},
+			wantErr: "SECURITY_HEADERS_ENABLE",
+		},
+		{
+			name: "forwarded header trust requires trusted proxies",
+			env: map[string]string{
+				"APP_ENV":           EnvironmentProduction,
+				"AUTH_JWT_ISSUER":   "issuer",
+				"AUTH_JWT_AUDIENCE": "audience",
+				"AUTH_JWT_KEYS":     strongJWTKeys,
+				"PROXY_TRUST_XFF":   "true",
+			},
+			wantErr: "PROXY_TRUSTED_PROXIES",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			clearConfigEnv(t)
+			for key, value := range tt.env {
+				t.Setenv(key, value)
+			}
+
+			_, err := Load()
+			if err == nil {
+				t.Fatal("Load() error = nil, want error")
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("error=%q want mention of %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestLoad_ProductionSecurityBaseline(t *testing.T) {
+	clearConfigEnv(t)
+	t.Setenv("APP_ENV", EnvironmentProduction)
+	t.Setenv("AUTH_JWT_ISSUER", "issuer")
+	t.Setenv("AUTH_JWT_AUDIENCE", "audience")
+	t.Setenv("AUTH_JWT_KEYS", "main:0123456789abcdef0123456789abcdef")
+	t.Setenv("HTTP_TLS_ENABLE", "true")
+	t.Setenv("HTTP_TLS_CERT_FILE", "certs/localhost.pem")
+	t.Setenv("HTTP_TLS_KEY_FILE", "certs/localhost-key.pem")
+	t.Setenv("HTTP_TLS_MIN_VERSION", "1.2")
+	t.Setenv("PROXY_TRUSTED_PROXIES", "127.0.0.1/32")
+	t.Setenv("PROXY_TRUST_XFF", "true")
+	t.Setenv("SECURITY_HEADERS_REFERRER_POLICY", "strict-origin-when-cross-origin")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if cfg.Runtime.Environment != EnvironmentProduction {
+		t.Fatalf("Runtime.Environment=%q want=%q", cfg.Runtime.Environment, EnvironmentProduction)
+	}
+	if cfg.HTTP.TLS.MinVersion != tls.VersionTLS12 {
+		t.Fatalf("HTTP.TLS.MinVersion=%#x want=%#x", cfg.HTTP.TLS.MinVersion, tls.VersionTLS12)
+	}
+	if cfg.SecurityHeaders.ReferrerPolicy != "strict-origin-when-cross-origin" {
+		t.Fatalf("ReferrerPolicy=%q", cfg.SecurityHeaders.ReferrerPolicy)
 	}
 }
 

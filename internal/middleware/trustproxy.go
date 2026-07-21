@@ -16,6 +16,10 @@ type ProxyAPI struct {
 }
 
 func NewProxyAPI(cfg config.ProxyConfig) (*ProxyAPI, error) {
+	if err := config.ValidateTrustedProxyRequirements(cfg); err != nil {
+		return nil, err
+	}
+
 	// Предполагаю, что в cfg.Proxy.TrustedProxies лежит []string (CIDR или IP).
 	// Если поле у тебя называется иначе — подгони здесь.
 	nets := make([]*net.IPNet, 0, len(cfg.TrustedProxies))

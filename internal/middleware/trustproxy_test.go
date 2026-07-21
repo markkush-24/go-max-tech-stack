@@ -4,12 +4,40 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"strings"
 	"testing"
 
 	"pet-study/internal/config"
 	"pet-study/internal/requestid"
 	"pet-study/internal/security"
 )
+
+func TestNewProxyAPI_RejectsForwardedTrustWithoutTrustedProxies(t *testing.T) {
+	_, err := NewProxyAPI(config.ProxyConfig{
+		TrustXFF: true,
+	})
+	if err == nil {
+		t.Fatal("NewProxyAPI error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "PROXY_TRUSTED_PROXIES") {
+		t.Fatalf("error=%q want mention of PROXY_TRUSTED_PROXIES", err)
+	}
+}
+
+func TestNewProxyAPI_RejectsWildcardTrustedProxy(t *testing.T) {
+	_, err := NewProxyAPI(config.ProxyConfig{
+		TrustedProxies: []netip.Prefix{
+			netip.MustParsePrefix("0.0.0.0/0"),
+		},
+		TrustXFP: true,
+	})
+	if err == nil {
+		t.Fatal("NewProxyAPI error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "PROXY_TRUSTED_PROXIES") {
+		t.Fatalf("error=%q want mention of PROXY_TRUSTED_PROXIES", err)
+	}
+}
 
 func TestTrustProxy_Untrusted_IgnoresXFFAndXFP(t *testing.T) {
 	proxyAPI, err := NewProxyAPI(config.ProxyConfig{
