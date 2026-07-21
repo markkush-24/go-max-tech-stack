@@ -40,8 +40,8 @@ Remove defects that can corrupt state, bypass security or make shutdown results 
 | [TASK-010](tasks/TASK-010-enforce-job-cas.md) | P0 | TASK-009 | DONE | Enforce Job CAS transitions in memory and PostgreSQL repositories |
 | [TASK-011](tasks/TASK-011-worker-generation-lifecycle.md) | P0 | TASK-009 | DONE | Redesign WorkerPool around an immutable worker generation |
 | [TASK-012](tasks/TASK-012-worker-stop-repair.md) | P0 | TASK-011, TASK-010 | DONE | Make worker Stop and terminal repair bounded and truly idempotent |
-| [TASK-013](tasks/TASK-013-queue-admission-contract.md) | P0 | TASK-007 | READY | Define deterministic queue cancellation and StopAccepting semantics |
-| [TASK-014](tasks/TASK-014-async-event-topology.md) | P0 | TASK-010, TASK-013 | BLOCKED | Correct async transition ordering and use one Event Hub in testkit |
+| [TASK-013](tasks/TASK-013-queue-admission-contract.md) | P0 | TASK-007 | DONE | Define deterministic queue cancellation and StopAccepting semantics |
+| [TASK-014](tasks/TASK-014-async-event-topology.md) | P0 | TASK-010, TASK-013 | READY | Correct async transition ordering and use one Event Hub in testkit |
 | [TASK-015](tasks/TASK-015-grpc-runtime-owner.md) | P0 | TASK-007 | READY | Give the gRPC runtime single-start/single-stop ownership |
 | [TASK-016](tasks/TASK-016-application-supervisor.md) | P0 | TASK-011, TASK-015 | BLOCKED | Introduce one application supervisor for HTTP, HTTPS, gRPC, workers and streams |
 | [TASK-017](tasks/TASK-017-shutdown-budget-outcome.md) | P0 | TASK-016, TASK-012 | BLOCKED | Implement one global shutdown budget and truthful outcome model |

@@ -263,7 +263,7 @@ type fakeJobConnector struct {
 }
 
 func (c fakeJobConnector) Connect(context.Context) (driver.Conn, error) {
-	return fakeJobConn{state: c.state}, nil
+	return fakeJobConn(c), nil
 }
 
 func (c fakeJobConnector) Driver() driver.Driver {

@@ -419,3 +419,27 @@ Notes:
 Unlocked tasks:
 - none
 ```
+
+```text
+Task: TASK-013
+Accepted: 2026-07-21
+Commit: 98d08cca
+Reviewer: Mark
+Verification:
+- go test -count=1 -v ./internal/queue/...: PASS
+- go test -count=1 -run "TestDeleteJobAfterFailedEnqueueUsesDetachedBoundedContext|TestQueueOverflowFastFail" -v ./internal/routes: PASS
+- go test ./internal/queue/... ./internal/routes/...: PASS
+- go test ./...: PASS
+- go vet ./internal/queue/... ./internal/routes/...: PASS
+- go test -race ./internal/queue/...: FAIL; local CGO_ENABLED=0 rejects -race
+- CGO_ENABLED=1 go test -race ./internal/queue/...: FAIL; local runtime/cgo could not find gcc in PATH
+- git diff --check: PASS
+Notes:
+- Defined deterministic Queue admission semantics with canceled-context rejection before send.
+- Documented StopAccepting as a strict post-return admission barrier without closing the producer channel.
+- Added queue cancellation/barrier/no-close regressions.
+- Made async enqueue rollback in v1/v2 users handlers use a detached bounded context.
+- Remaining limitation: local Windows race verification requires CGO plus a C compiler.
+Unlocked tasks:
+- TASK-014
+```
