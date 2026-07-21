@@ -5,17 +5,22 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"pet-study/internal/interceptors"
 	"pet-study/internal/transport/pb"
 	"strings"
+	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
+const DefaultCallTimeout = 2 * time.Second
+
 type Config struct {
-	Addr string
-	TLS  TLSConfig
+	Addr        string
+	CallTimeout time.Duration
+	TLS         TLSConfig
 }
 
 type TLSConfig struct {
@@ -46,9 +51,20 @@ func NewJobsClientWithConfig(cfg Config) (pb.JobsServiceClient, *grpc.ClientConn
 		return nil, nil, fmt.Errorf("plaintext grpc client requires a loopback target")
 	}
 
+	callTimeout := cfg.CallTimeout
+	if callTimeout == 0 {
+		callTimeout = DefaultCallTimeout
+	}
+	if callTimeout < 0 {
+		return nil, nil, fmt.Errorf("grpc client call timeout must be >= 0")
+	}
+
 	conn, err := grpc.NewClient(
 		target,
 		grpc.WithTransportCredentials(transportCredentials),
+		grpc.WithChainUnaryInterceptor(
+			interceptors.UnaryClientRequestIDAndTimeout(callTimeout),
+		),
 	)
 	if err != nil {
 		return nil, nil, err

@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"pet-study/internal/entity"
@@ -13,9 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
-	"google.golang.org/grpc/status"
 )
 
 type JobHandler struct {
@@ -62,17 +61,14 @@ func (h *JobHandler) GetByID(w http.ResponseWriter, r *http.Request, id int) err
 }
 
 func (h *JobHandler) GetByIDViaGRPC(w http.ResponseWriter, r *http.Request, id int64) error {
-	ctx := r.Context()
+	ctx, cancel := context.WithTimeout(r.Context(), httputils.GRPCBridgeCallTimeout)
+	defer cancel()
 
-	metadataPairs := make([]string, 0, 4)
 	if reqID, ok := requestid.RequestID(ctx); ok && reqID != "" {
-		metadataPairs = append(metadataPairs, "request-id", reqID)
+		ctx = metadata.AppendToOutgoingContext(ctx, "request-id", reqID)
 	}
 	if authorization := strings.TrimSpace(r.Header.Get("Authorization")); authorization != "" {
-		metadataPairs = append(metadataPairs, "authorization", authorization)
-	}
-	if len(metadataPairs) > 0 {
-		ctx = metadata.NewOutgoingContext(ctx, metadata.Pairs(metadataPairs...))
+		ctx = metadata.AppendToOutgoingContext(ctx, "authorization", authorization)
 	}
 
 	if h.jobGRPCClient == nil {
@@ -81,7 +77,7 @@ func (h *JobHandler) GetByIDViaGRPC(w http.ResponseWriter, r *http.Request, id i
 
 	resp, err := h.jobGRPCClient.GetJob(ctx, &pb.GetJobRequest{Id: id})
 	if err != nil {
-		return mapGRPCError(err)
+		return httputils.MapGRPCBridgeError(err)
 	}
 
 	out := entity.JobBridgeDTO{
@@ -171,34 +167,6 @@ func (h *JobHandler) Events(w http.ResponseWriter, r *http.Request, id int) erro
 				return err
 			}
 		}
-	}
-}
-
-func mapGRPCError(err error) error {
-	if err == nil {
-		return nil
-	}
-
-	st, ok := status.FromError(err)
-	if !ok {
-		return err
-	}
-
-	switch st.Code() {
-	case codes.InvalidArgument:
-		return &httputils.BadRequestError{Detail: st.Message()}
-
-	case codes.NotFound:
-		return entity.ErrJobNotFound
-
-	case codes.PermissionDenied:
-		return security.NewForbidden(security.AuthZForbidden, nil)
-
-	case codes.Unauthenticated:
-		return security.NewUnauthorized(security.AuthNInvalid, nil)
-
-	default:
-		return err
 	}
 }
 

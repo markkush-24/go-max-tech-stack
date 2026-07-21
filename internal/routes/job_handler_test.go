@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"pet-study/internal/health"
+	"pet-study/internal/httputils"
 	"pet-study/internal/metrics"
 	"pet-study/internal/middleware"
 	"pet-study/internal/queue"
@@ -269,9 +270,13 @@ func TestJobHandlerGetByIDViaGRPCForwardsAuthorization(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/123/grpc", nil)
 	req.Header.Set("Authorization", "Bearer test-token")
+	req = req.WithContext(metadata.NewOutgoingContext(req.Context(), metadata.Pairs(
+		"traceparent", "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-00",
+	)))
 	req = req.WithContext(requestid.WithRequestID(req.Context(), "rid-test"))
 
 	rec := httptest.NewRecorder()
+	started := time.Now()
 	if err := jh.GetByIDViaGRPC(rec, req, 123); err != nil {
 		t.Fatalf("GetByIDViaGRPC: %v", err)
 	}
@@ -282,11 +287,23 @@ func TestJobHandlerGetByIDViaGRPCForwardsAuthorization(t *testing.T) {
 	if client.requestID != "rid-test" {
 		t.Fatalf("requestID=%q want=%q", client.requestID, "rid-test")
 	}
+	if client.traceparent == "" {
+		t.Fatalf("existing outgoing metadata was not preserved")
+	}
+	if !client.hasDeadline {
+		t.Fatalf("missing gRPC bridge deadline")
+	}
+	if client.deadline.After(started.Add(httputils.GRPCBridgeCallTimeout + 100*time.Millisecond)) {
+		t.Fatalf("deadline=%v exceeds bridge timeout from start=%v", client.deadline, started)
+	}
 }
 
 type recordingJobsClient struct {
 	authorization string
 	requestID     string
+	traceparent   string
+	deadline      time.Time
+	hasDeadline   bool
 }
 
 func (c *recordingJobsClient) GetJob(ctx context.Context, req *pb.GetJobRequest, _ ...grpc.CallOption) (*pb.Job, error) {
@@ -297,6 +314,10 @@ func (c *recordingJobsClient) GetJob(ctx context.Context, req *pb.GetJobRequest,
 	if values := md.Get("request-id"); len(values) > 0 {
 		c.requestID = values[0]
 	}
+	if values := md.Get("traceparent"); len(values) > 0 {
+		c.traceparent = values[0]
+	}
+	c.deadline, c.hasDeadline = ctx.Deadline()
 
 	return &pb.Job{
 		Id:     req.GetId(),

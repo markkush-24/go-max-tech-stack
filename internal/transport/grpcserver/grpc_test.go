@@ -3,6 +3,7 @@ package grpcserver_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"log/slog"
 	"net"
 	"pet-study/internal/entity"
@@ -118,7 +119,8 @@ func TestJobsServiceGetJob_Success_LogsRequestID(t *testing.T) {
 		"request-id", "rid-test-1",
 		"authorization", "Bearer "+testAdminToken,
 	))
-	resp, err := client.GetJob(ctx, &pb.GetJobRequest{Id: job.ID})
+	var header metadata.MD
+	resp, err := client.GetJob(ctx, &pb.GetJobRequest{Id: job.ID}, grpc.Header(&header))
 	if err != nil {
 		t.Fatalf("GetJob: %v", err)
 	}
@@ -127,6 +129,9 @@ func TestJobsServiceGetJob_Success_LogsRequestID(t *testing.T) {
 	}
 	if resp.GetStatus() != pb.JobStatus_JOB_STATUS_SUCCEEDED {
 		t.Fatalf("status=%v want=%v", resp.GetStatus(), pb.JobStatus_JOB_STATUS_SUCCEEDED)
+	}
+	if got := header.Get("request-id"); len(got) != 1 || got[0] != "rid-test-1" {
+		t.Fatalf("response request-id metadata=%v want rid-test-1", got)
 	}
 
 	logText := logs.String()
@@ -138,6 +143,40 @@ func TestJobsServiceGetJob_Success_LogsRequestID(t *testing.T) {
 	}
 	if !strings.Contains(logText, "code=OK") {
 		t.Fatalf("log missing code=OK: %s", logText)
+	}
+}
+
+func TestJobsServiceGetJob_InvalidRequestIDIsSanitizedAndReturned(t *testing.T) {
+	jobRepo := jobrepo.NewMemoryJobRepository()
+	jobSvc := service.NewJobService(jobRepo)
+	job := entity.Job{Status: entity.JobSucceeded}
+	if err := jobSvc.Save(context.Background(), &job); err != nil {
+		t.Fatalf("save job: %v", err)
+	}
+
+	client, cleanup := newDefaultBufconnJobsClient(t, jobSvc, slog.New(slog.NewTextHandler(ioDiscard{}, nil)))
+	defer cleanup()
+
+	invalidRID := strings.Repeat("a", 129)
+	ctx := metadata.NewOutgoingContext(context.Background(), metadata.Pairs(
+		"request-id", invalidRID,
+		"authorization", "Bearer "+testAdminToken,
+	))
+	var header metadata.MD
+	_, err := client.GetJob(ctx, &pb.GetJobRequest{Id: job.ID}, grpc.Header(&header))
+	if err != nil {
+		t.Fatalf("GetJob: %v", err)
+	}
+
+	got := header.Get("request-id")
+	if len(got) != 1 || got[0] == "" {
+		t.Fatalf("response request-id metadata=%v", got)
+	}
+	if got[0] == invalidRID {
+		t.Fatalf("invalid request-id was echoed")
+	}
+	if len(got[0]) > 128 {
+		t.Fatalf("generated request-id too long: %q", got[0])
 	}
 }
 
@@ -165,6 +204,75 @@ func TestJobsServiceGetJob_NotFound(t *testing.T) {
 	}
 }
 
+func TestJobsServiceGetJob_ContextErrors(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		code codes.Code
+	}{
+		{
+			name: "canceled",
+			err:  context.Canceled,
+			code: codes.Canceled,
+		},
+		{
+			name: "deadline exceeded",
+			err:  context.DeadlineExceeded,
+			code: codes.DeadlineExceeded,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			jobSvc := service.NewJobService(failingJobRepository{getErr: tt.err})
+			logger := slog.New(slog.NewTextHandler(ioDiscard{}, nil))
+			client, cleanup := newDefaultBufconnJobsClient(t, jobSvc, logger)
+			defer cleanup()
+
+			_, err := client.GetJob(grpcAuthorizedContext(context.Background(), testAdminToken), &pb.GetJobRequest{Id: 1})
+			if status.Code(err) != tt.code {
+				t.Fatalf("code=%v want=%v err=%v", status.Code(err), tt.code, err)
+			}
+		})
+	}
+}
+
 type ioDiscard struct{}
 
 func (ioDiscard) Write(p []byte) (int, error) { return len(p), nil }
+
+type failingJobRepository struct {
+	getErr error
+}
+
+func (r failingJobRepository) GetAll(context.Context) ([]*entity.Job, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (r failingJobRepository) GetByID(context.Context, int64) (*entity.Job, error) {
+	return nil, r.getErr
+}
+
+func (r failingJobRepository) Save(context.Context, *entity.Job) error {
+	return errors.New("not implemented")
+}
+
+func (r failingJobRepository) Delete(context.Context, int64) error {
+	return errors.New("not implemented")
+}
+
+func (r failingJobRepository) SetRunning(context.Context, int64) error {
+	return errors.New("not implemented")
+}
+
+func (r failingJobRepository) SetSucceeded(context.Context, int64, entity.JobResult) error {
+	return errors.New("not implemented")
+}
+
+func (r failingJobRepository) SetFailed(context.Context, int64, entity.JobProblem) error {
+	return errors.New("not implemented")
+}
+
+func (r failingJobRepository) FailActive(context.Context, entity.JobProblem) (int, error) {
+	return 0, errors.New("not implemented")
+}

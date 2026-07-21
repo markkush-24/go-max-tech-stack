@@ -121,6 +121,24 @@ func MapError(r *http.Request, err error) MappedProblem {
 		}
 	}
 
+	if errors.Is(err, ErrGRPCBridgeTimeout) {
+		return MappedProblem{
+			Problem: Problem{
+				Status: http.StatusGatewayTimeout,
+				Detail: "grpc bridge timeout",
+			},
+		}
+	}
+
+	if errors.Is(err, ErrGRPCBridgeCanceled) {
+		return MappedProblem{
+			Problem: Problem{
+				Status: http.StatusRequestTimeout,
+				Detail: "request canceled",
+			},
+		}
+	}
+
 	// 2) Payload too large (413) — приходит как *http.MaxBytesError из MaxBytesReader.
 	var mbe *http.MaxBytesError
 	if errors.As(err, &mbe) {

@@ -40,10 +40,16 @@ func (s *JobGRPCService) GetJob(ctx context.Context, req *pb.GetJobRequest) (*pb
 	job, err := s.jobService.GetByID(ctx, req.Id)
 	if err != nil {
 		// Return a gRPC status error with NotFound code
-		if errors.Is(err, entity.ErrJobNotFound) {
+		switch {
+		case errors.Is(err, context.Canceled):
+			return nil, status.Error(codes.Canceled, "request canceled")
+		case errors.Is(err, context.DeadlineExceeded):
+			return nil, status.Error(codes.DeadlineExceeded, "deadline exceeded")
+		case errors.Is(err, entity.ErrJobNotFound):
 			return nil, status.Errorf(codes.NotFound, "job with ID %d not found", req.Id)
+		default:
+			return nil, status.Error(codes.Internal, "internal error")
 		}
-		return nil, status.Error(codes.Internal, "internal error")
 	}
 
 	if !security.CanReadJob(principal, job.OwnerUserID) {
