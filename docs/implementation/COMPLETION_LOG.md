@@ -523,3 +523,29 @@ Unlocked tasks:
 - TASK-025
 - TASK-076
 ```
+
+```text
+Task: TASK-017
+Accepted: 2026-07-21
+Commit: a35da624
+Reviewer: Mark
+Verification:
+- go test -count=1 -run TestRunShutdownUsesOneGlobalBudgetAndReportsForcedOutcomes -v ./internal/api: PASS
+- go test -count=1 -run TestRepairContextRespectsEarlierParentDeadline ./internal/workerpool: PASS
+- go test -count=1 ./internal/api/... ./internal/workerpool/...: PASS
+- go test ./internal/api/...: PASS
+- go test ./internal/workerpool/...: PASS
+- go test ./...: PASS
+- go vet ./internal/api/... ./internal/workerpool/...: PASS
+- staticcheck ./...: PASS
+- git diff --check: PASS
+- go test -race ./internal/api/... ./internal/workerpool/...: FAIL; local CGO_ENABLED=0 rejects -race
+- CGO_ENABLED=1 go test -race ./internal/api/... ./internal/workerpool/...: FAIL; local runtime/cgo could not find gcc in PATH
+Notes:
+- Added one global shutdown budget based on HTTP.ShutdownTimeout and derived component shutdown contexts from it.
+- Stopped independent HTTP listeners concurrently and returned typed shutdown outcomes for graceful, forced, timed_out and failed component shutdowns.
+- Capped detached workerpool repair contexts by the global shutdown deadline while preserving protection from parent cancellation.
+- Remaining limitation: local Windows race verification requires CGO plus a C compiler.
+Unlocked tasks:
+- none
+```
