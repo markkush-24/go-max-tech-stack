@@ -14,7 +14,6 @@ import (
 	"pet-study/internal/stream"
 	"pet-study/internal/workerpool"
 	"sync"
-	"time"
 )
 
 type grpcRuntime interface {
@@ -25,6 +24,32 @@ type grpcRuntime interface {
 }
 
 type listenFunc func(network, addr string) (net.Listener, error)
+
+type shutdownOutcome string
+
+const (
+	shutdownOutcomeGraceful shutdownOutcome = "graceful"
+	shutdownOutcomeForced   shutdownOutcome = "forced"
+	shutdownOutcomeTimedOut shutdownOutcome = "timed_out"
+	shutdownOutcomeFailed   shutdownOutcome = "failed"
+)
+
+type componentShutdownError struct {
+	Component string
+	Outcome   shutdownOutcome
+	Err       error
+}
+
+func (e *componentShutdownError) Error() string {
+	if e.Err == nil {
+		return fmt.Sprintf("%s shutdown %s", e.Component, e.Outcome)
+	}
+	return fmt.Sprintf("%s shutdown %s: %v", e.Component, e.Outcome, e.Err)
+}
+
+func (e *componentShutdownError) Unwrap() error {
+	return e.Err
+}
 
 type APIServer struct {
 	config      config.Config
@@ -184,6 +209,9 @@ func doneChan(runtime grpcRuntime) <-chan struct{} {
 }
 
 func (s *APIServer) cleanup(logger *slog.Logger, httpSrv, httpsSrv *http.Server, wg *sync.WaitGroup) error {
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), s.config.HTTP.ShutdownTimeout)
+	defer cancel()
+
 	s.readiness.SetNotReady()
 	logger.Info("readiness changed", "ready", false)
 
@@ -191,29 +219,15 @@ func (s *APIServer) cleanup(logger *slog.Logger, httpSrv, httpsSrv *http.Server,
 
 	var shutdownErrs []error
 
-	if httpsSrv != nil {
-		if err := shutdownServer(logger, "https", httpsSrv, s.config.HTTP.ShutdownTimeout); err != nil {
-			shutdownErrs = append(shutdownErrs, err)
-		}
-	}
-
-	if err := shutdownServer(logger, "http", httpSrv, s.config.HTTP.ShutdownTimeout); err != nil {
-		shutdownErrs = append(shutdownErrs, err)
-	}
+	shutdownErrs = append(shutdownErrs, shutdownHTTPServers(shutdownCtx, logger, httpSrv, httpsSrv)...)
 
 	if s.grpcRuntime != nil {
-		grpcCtx, cancel := context.WithTimeout(context.Background(), s.config.HTTP.ShutdownTimeout)
-		defer cancel()
-
-		if err := s.grpcRuntime.Shutdown(grpcCtx); err != nil && !errors.Is(err, context.DeadlineExceeded) {
+		if err := shutdownGRPC(shutdownCtx, logger, s.grpcRuntime); err != nil {
 			shutdownErrs = append(shutdownErrs, err)
 		}
 	}
 
-	stopCtx, cancel := context.WithTimeout(context.Background(), s.config.HTTP.ShutdownTimeout)
-	defer cancel()
-
-	if err := s.pool.Stop(stopCtx); err != nil {
+	if err := shutdownWorkerPool(shutdownCtx, logger, s.pool); err != nil {
 		logger.Error("worker pool stop failed", "err", err)
 		shutdownErrs = append(shutdownErrs, err)
 	}
@@ -232,12 +246,47 @@ func (s *APIServer) cleanup(logger *slog.Logger, httpSrv, httpsSrv *http.Server,
 	return nil
 }
 
-func shutdownServer(logger *slog.Logger, name string, srv *http.Server, timeout time.Duration) error {
+type namedHTTPServer struct {
+	name string
+	srv  *http.Server
+}
+
+func shutdownHTTPServers(ctx context.Context, logger *slog.Logger, httpSrv, httpsSrv *http.Server) []error {
+	servers := []namedHTTPServer{
+		{name: "http", srv: httpSrv},
+	}
+	if httpsSrv != nil {
+		servers = append(servers, namedHTTPServer{name: "https", srv: httpsSrv})
+	}
+
+	errCh := make(chan error, len(servers))
+	var wg sync.WaitGroup
+	for _, server := range servers {
+		server := server
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := shutdownServer(ctx, logger, server.name, server.srv); err != nil {
+				errCh <- err
+			}
+		}()
+	}
+	wg.Wait()
+	close(errCh)
+
+	var errs []error
+	for err := range errCh {
+		errs = append(errs, err)
+	}
+	return errs
+}
+
+func shutdownServer(ctx context.Context, logger *slog.Logger, name string, srv *http.Server) error {
 	if srv == nil {
 		return nil
 	}
 
-	sdCtx, cancel := context.WithTimeout(context.Background(), timeout)
+	sdCtx, cancel := componentShutdownContext(ctx)
 	defer cancel()
 
 	if err := srv.Shutdown(sdCtx); err != nil {
@@ -246,20 +295,72 @@ func shutdownServer(logger *slog.Logger, name string, srv *http.Server, timeout 
 		}
 
 		if errors.Is(err, context.DeadlineExceeded) {
-			logger.Warn("shutdown timeout, forcing close", "server", name, "timeout", timeout.String())
+			logger.Warn("shutdown timeout, forcing close", "server", name)
 			if closeErr := srv.Close(); closeErr != nil && !errors.Is(closeErr, http.ErrServerClosed) {
-				return errors.Join(err, closeErr)
+				return errors.Join(
+					newComponentShutdownError(name, shutdownOutcomeForced, err),
+					newComponentShutdownError(name, shutdownOutcomeFailed, closeErr),
+				)
 			}
-			return nil
+			return newComponentShutdownError(name, shutdownOutcomeForced, err)
 		}
 
 		if closeErr := srv.Close(); closeErr != nil && !errors.Is(closeErr, http.ErrServerClosed) {
-			return errors.Join(err, closeErr)
+			return errors.Join(
+				newComponentShutdownError(name, shutdownOutcomeFailed, err),
+				newComponentShutdownError(name, shutdownOutcomeFailed, closeErr),
+			)
 		}
-		return err
+		return newComponentShutdownError(name, shutdownOutcomeFailed, err)
 	}
 
+	logger.Info("component shutdown complete", "target", name, "outcome", string(shutdownOutcomeGraceful))
 	return nil
+}
+
+func shutdownGRPC(ctx context.Context, logger *slog.Logger, runtime grpcRuntime) error {
+	grpcCtx, cancel := componentShutdownContext(ctx)
+	defer cancel()
+
+	if err := runtime.Shutdown(grpcCtx); err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			logger.Warn("gRPC shutdown timeout, forced stop attempted")
+			return newComponentShutdownError("grpc", shutdownOutcomeForced, err)
+		}
+		return newComponentShutdownError("grpc", shutdownOutcomeFailed, err)
+	}
+	logger.Info("component shutdown complete", "target", "grpc", "outcome", string(shutdownOutcomeGraceful))
+	return nil
+}
+
+func shutdownWorkerPool(ctx context.Context, logger *slog.Logger, pool *workerpool.WorkerPool) error {
+	stopCtx, cancel := componentShutdownContext(ctx)
+	defer cancel()
+
+	if err := pool.Stop(stopCtx); err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			logger.Warn("worker pool shutdown timed out")
+			return newComponentShutdownError("workerpool", shutdownOutcomeTimedOut, err)
+		}
+		return newComponentShutdownError("workerpool", shutdownOutcomeFailed, err)
+	}
+	logger.Info("component shutdown complete", "target", "workerpool", "outcome", string(shutdownOutcomeGraceful))
+	return nil
+}
+
+func componentShutdownContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if deadline, ok := ctx.Deadline(); ok {
+		return context.WithDeadline(ctx, deadline)
+	}
+	return context.WithCancel(ctx)
+}
+
+func newComponentShutdownError(component string, outcome shutdownOutcome, err error) error {
+	return &componentShutdownError{
+		Component: component,
+		Outcome:   outcome,
+		Err:       err,
+	}
 }
 
 func (s *APIServer) newHTTPServer(addr string, tlsCfg *tls.Config) *http.Server {

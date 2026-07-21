@@ -235,7 +235,12 @@ func (wp *WorkerPool) newRepairContext(ctx context.Context) (context.Context, co
 	if timeout <= 0 {
 		timeout = defaultStopRepairTimeout
 	}
-	return context.WithTimeout(context.WithoutCancel(ctx), timeout)
+
+	deadline := time.Now().Add(timeout)
+	if parentDeadline, ok := ctx.Deadline(); ok && parentDeadline.Before(deadline) {
+		deadline = parentDeadline
+	}
+	return context.WithDeadline(context.WithoutCancel(ctx), deadline)
 }
 
 func (wp *WorkerPool) workerLoop(ctx context.Context, gen *workerGeneration) {

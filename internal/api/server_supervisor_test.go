@@ -19,6 +19,77 @@ import (
 	"time"
 )
 
+func TestRunShutdownUsesOneGlobalBudgetAndReportsForcedOutcomes(t *testing.T) {
+	q := queue.New(1)
+	hub := stream.NewHub(16)
+	pool := newSupervisorTestPool(q, hub)
+	grpcRuntime := newFakeSupervisorGRPC()
+	grpcRuntime.blockShutdown = true
+	readiness := health.NewReadiness()
+
+	handlerStarted := make(chan struct{})
+	var handlerStartedOnce sync.Once
+	mux := http.NewServeMux()
+	mux.HandleFunc("/block", func(w http.ResponseWriter, r *http.Request) {
+		handlerStartedOnce.Do(func() { close(handlerStarted) })
+		<-r.Context().Done()
+	})
+
+	cfg := supervisorTestConfig("127.0.0.1:0", 0)
+	cfg.HTTP.ShutdownTimeout = 120 * time.Millisecond
+
+	server := NewAPIServer(cfg, mux, readiness, pool, q, grpcRuntime, hub)
+
+	addrCh := make(chan string, 1)
+	server.listen = func(network, addr string) (net.Listener, error) {
+		ln, err := net.Listen(network, addr)
+		if err == nil {
+			addrCh <- ln.Addr().String()
+		}
+		return ln, err
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- server.Run(ctx)
+	}()
+
+	addr := waitSupervisorAddr(t, addrCh)
+	waitSupervisorReady(t, readiness)
+
+	clientErrCh := make(chan error, 1)
+	go func() {
+		resp, err := http.Get("http://" + addr + "/block")
+		if resp != nil {
+			_ = resp.Body.Close()
+		}
+		clientErrCh <- err
+	}()
+
+	waitClosed(t, handlerStarted, "blocking handler start")
+
+	startedShutdown := time.Now()
+	cancel()
+	err := waitSupervisorRun(t, errCh)
+	elapsed := time.Since(startedShutdown)
+	_ = waitSupervisorRun(t, clientErrCh)
+
+	if err == nil {
+		t.Fatal("Run() error = nil, want forced shutdown outcomes")
+	}
+	assertComponentShutdownError(t, err, "http", shutdownOutcomeForced)
+	assertComponentShutdownError(t, err, "grpc", shutdownOutcomeForced)
+
+	if !errors.Is(grpcRuntime.shutdownCtxErrAtStart(), context.DeadlineExceeded) {
+		t.Fatalf("grpc shutdown ctx err at start=%v want DeadlineExceeded", grpcRuntime.shutdownCtxErrAtStart())
+	}
+	if elapsed > 350*time.Millisecond {
+		t.Fatalf("shutdown elapsed=%s, want one global budget around %s", elapsed, cfg.HTTP.ShutdownTimeout)
+	}
+	assertSupervisorCleanup(t, q, pool, hub, grpcRuntime)
+}
+
 func TestRunReturnsGRPCFatalErrorAndStopsOwnedComponents(t *testing.T) {
 	q := queue.New(1)
 	hub := stream.NewHub(16)
@@ -123,6 +194,28 @@ func waitSupervisorRun(t *testing.T, errCh <-chan error) error {
 	}
 }
 
+func waitSupervisorAddr(t *testing.T, addrCh <-chan string) string {
+	t.Helper()
+
+	select {
+	case addr := <-addrCh:
+		return addr
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for listener address")
+		return ""
+	}
+}
+
+func waitClosed(t *testing.T, ch <-chan struct{}, name string) {
+	t.Helper()
+
+	select {
+	case <-ch:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("timeout waiting for %s", name)
+	}
+}
+
 func assertSupervisorCleanup(
 	t *testing.T,
 	q *queue.Queue,
@@ -146,14 +239,56 @@ func assertSupervisorCleanup(
 	}
 }
 
+func assertComponentShutdownError(t *testing.T, err error, component string, outcome shutdownOutcome) {
+	t.Helper()
+
+	if !hasComponentShutdownError(err, component, outcome) {
+		t.Fatalf("error=%v missing %s %s shutdown outcome", err, component, outcome)
+	}
+}
+
+func hasComponentShutdownError(err error, component string, outcome shutdownOutcome) bool {
+	if err == nil {
+		return false
+	}
+
+	var componentErr *componentShutdownError
+	if errors.As(err, &componentErr) && componentErr.Component == component && componentErr.Outcome == outcome {
+		return true
+	}
+
+	type multiUnwrapper interface {
+		Unwrap() []error
+	}
+	if unwrapped, ok := err.(multiUnwrapper); ok {
+		for _, child := range unwrapped.Unwrap() {
+			if hasComponentShutdownError(child, component, outcome) {
+				return true
+			}
+		}
+		return false
+	}
+
+	type singleUnwrapper interface {
+		Unwrap() error
+	}
+	if unwrapped, ok := err.(singleUnwrapper); ok {
+		return hasComponentShutdownError(unwrapped.Unwrap(), component, outcome)
+	}
+
+	return false
+}
+
 type fakeSupervisorGRPC struct {
 	done chan struct{}
 	once sync.Once
 
-	mu        sync.Mutex
-	err       error
-	starts    int
-	shutdowns int
+	mu                 sync.Mutex
+	err                error
+	starts             int
+	shutdowns          int
+	blockShutdown      bool
+	shutdownCtxErrSeen error
 }
 
 func newFakeSupervisorGRPC() *fakeSupervisorGRPC {
@@ -169,11 +304,18 @@ func (g *fakeSupervisorGRPC) Start(context.CancelFunc) error {
 	return nil
 }
 
-func (g *fakeSupervisorGRPC) Shutdown(context.Context) error {
+func (g *fakeSupervisorGRPC) Shutdown(ctx context.Context) error {
 	g.mu.Lock()
 	g.shutdowns++
+	blockShutdown := g.blockShutdown
+	g.shutdownCtxErrSeen = ctx.Err()
 	g.mu.Unlock()
 	g.once.Do(func() { close(g.done) })
+
+	if blockShutdown {
+		<-ctx.Done()
+		return ctx.Err()
+	}
 	return nil
 }
 
@@ -198,6 +340,12 @@ func (g *fakeSupervisorGRPC) shutdownCalls() int {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	return g.shutdowns
+}
+
+func (g *fakeSupervisorGRPC) shutdownCtxErrAtStart() error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.shutdownCtxErrSeen
 }
 
 type failingListener struct {

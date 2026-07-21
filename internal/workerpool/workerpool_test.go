@@ -290,6 +290,29 @@ func TestStopUsesDetachedBoundedRepairContext(t *testing.T) {
 	}
 }
 
+func TestRepairContextRespectsEarlierParentDeadline(t *testing.T) {
+	pool, _, _ := newTestPool(userrepo.NewMemoryUserRepository())
+	pool.repairTimeout = time.Hour
+
+	parentDeadline := time.Now().Add(time.Minute)
+	parentCtx, cancelParent := context.WithDeadline(context.Background(), parentDeadline)
+	repairCtx, cancelRepair := pool.newRepairContext(parentCtx)
+	defer cancelRepair()
+
+	gotDeadline, ok := repairCtx.Deadline()
+	if !ok {
+		t.Fatal("repair context deadline missing")
+	}
+	if !gotDeadline.Equal(parentDeadline) {
+		t.Fatalf("repair deadline=%s want parent deadline=%s", gotDeadline, parentDeadline)
+	}
+
+	cancelParent()
+	if repairCtx.Err() != nil {
+		t.Fatalf("repair context canceled by parent cancel: %v", repairCtx.Err())
+	}
+}
+
 func TestMarkJobFailedUsesDetachedBoundedRepairContext(t *testing.T) {
 	jobRepo := newBlockingSetFailedJobRepo()
 	pool, _, jobSvc := newTestPoolWithJobRepo(userrepo.NewMemoryUserRepository(), jobRepo)
