@@ -549,3 +549,25 @@ Notes:
 Unlocked tasks:
 - none
 ```
+
+```text
+Task: TASK-018
+Accepted: 2026-07-21
+Commit: df86b3b8
+Reviewer: Mark
+Verification:
+- test -f docs/adr/*grpc* || true: FAIL; PowerShell has no POSIX test/true commands
+- C:\Program Files\Git\bin\bash.exe -lc 'test -f docs/adr/*grpc* || true': PASS
+- Test-Path docs/adr/*grpc*: PASS
+- go test ./internal/config/...: PASS
+- go test ./...: PASS
+- git diff --check: PASS
+- git diff --check -- README.md: PASS
+Notes:
+- Recorded direct gRPC as a private authenticated internal interface, not a public edge API.
+- Chose mTLS plus application identity propagation, RBAC/owner checks and reflection disabled by default for the deployable model.
+- Updated README so current plaintext direct gRPC examples are explicitly loopback/dev-only.
+- Remaining limitation: runtime enforcement is intentionally left for TASK-019, TASK-020 and TASK-021.
+Unlocked tasks:
+- TASK-019
+```

@@ -45,8 +45,8 @@ Remove defects that can corrupt state, bypass security or make shutdown results 
 | [TASK-015](tasks/TASK-015-grpc-runtime-owner.md) | P0 | TASK-007 | DONE | Give the gRPC runtime single-start/single-stop ownership |
 | [TASK-016](tasks/TASK-016-application-supervisor.md) | P0 | TASK-011, TASK-015 | DONE | Introduce one application supervisor for HTTP, HTTPS, gRPC, workers and streams |
 | [TASK-017](tasks/TASK-017-shutdown-budget-outcome.md) | P0 | TASK-016, TASK-012 | DONE | Implement one global shutdown budget and truthful outcome model |
-| [TASK-018](tasks/TASK-018-grpc-security-decision.md) | P0 | TASK-005 | READY | Record the direct gRPC trust and exposure model |
-| [TASK-019](tasks/TASK-019-grpc-transport-security.md) | P0 | TASK-018, TASK-015 | BLOCKED | Add gRPC TLS or mTLS and environment-controlled reflection |
+| [TASK-018](tasks/TASK-018-grpc-security-decision.md) | P0 | TASK-005 | DONE | Record the direct gRPC trust and exposure model |
+| [TASK-019](tasks/TASK-019-grpc-transport-security.md) | P0 | TASK-018, TASK-015 | READY | Add gRPC TLS or mTLS and environment-controlled reflection |
 | [TASK-020](tasks/TASK-020-grpc-authz.md) | P0 | TASK-018, TASK-019 | BLOCKED | Add gRPC authentication, RBAC and owner authorization |
 | [TASK-021](tasks/TASK-021-grpc-metadata-errors.md) | P0 | TASK-020 | BLOCKED | Normalize gRPC metadata, request ID, status codes and bridge timeout |
 | [TASK-022](tasks/TASK-022-production-security-guards.md) | P0 | TASK-005 | READY | Add environment guards for JWT, TLS, proxy and security-header defaults |
