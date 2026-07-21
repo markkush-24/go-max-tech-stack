@@ -469,3 +469,28 @@ Notes:
 Unlocked tasks:
 - none
 ```
+
+```text
+Task: TASK-015
+Accepted: 2026-07-21
+Commit: 68c8899d
+Reviewer: Mark
+Verification:
+- gofmt -w internal/transport/grpcserver/runtime.go internal/transport/grpcserver/runtime_test.go: PASS
+- go test -count=1 -run Runtime -v ./internal/transport/grpcserver: PASS
+- go test -count=1 ./internal/transport/grpcserver/...: PASS
+- go test -race ./internal/transport/grpcserver/...: FAIL; local CGO_ENABLED=0 rejects -race
+- CGO_ENABLED=1 go test -race ./internal/transport/grpcserver/...: FAIL; local runtime/cgo could not find gcc in PATH
+- go test ./...: PASS
+- go vet ./internal/transport/grpcserver/...: PASS
+- staticcheck ./...: PASS
+- git diff --check: PASS
+Notes:
+- Added explicit gRPC runtime state, single-use Start and idempotent Shutdown with one GracefulStop attempt plus one forced Stop fallback.
+- Added Done and Err so the application owner can observe fatal Serve failures.
+- Added runtime tests for bind failure, fatal Serve error, repeated Start and forced/repeated Shutdown.
+- Remaining limitation: local Windows race verification requires CGO plus a C compiler.
+- Remaining limitation: cmd/api does not yet consume Done/Err; that belongs to the application supervisor task.
+Unlocked tasks:
+- TASK-016
+```
