@@ -1,29 +1,92 @@
 package grpcclient
 
 import (
+	"crypto/tls"
+	"fmt"
 	"net"
+	"net/netip"
 	"pet-study/internal/transport/pb"
 	"strings"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
+type Config struct {
+	Addr string
+	TLS  TLSConfig
+}
+
+type TLSConfig struct {
+	Enable     bool
+	CertFile   string
+	KeyFile    string
+	CAFile     string
+	ServerName string
+}
+
 func NewJobsClient(listenAddr string) (pb.JobsServiceClient, *grpc.ClientConn, error) {
-	target, err := loopbackTarget(listenAddr)
+	return NewJobsClientWithConfig(Config{Addr: listenAddr})
+}
+
+func NewJobsClientWithConfig(cfg Config) (pb.JobsServiceClient, *grpc.ClientConn, error) {
+	target, err := loopbackTarget(cfg.Addr)
 	if err != nil {
 		return nil, nil, err
 	}
 
+	transportCredentials := insecure.NewCredentials()
+	if cfg.TLS.Enable {
+		transportCredentials, err = newClientTLSCredentials(cfg.TLS)
+		if err != nil {
+			return nil, nil, err
+		}
+	} else if !isLoopbackTarget(target) {
+		return nil, nil, fmt.Errorf("plaintext grpc client requires a loopback target")
+	}
+
 	conn, err := grpc.NewClient(
 		target,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithTransportCredentials(transportCredentials),
 	)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	return pb.NewJobsServiceClient(conn), conn, nil
+}
+
+func newClientTLSCredentials(cfg TLSConfig) (credentials.TransportCredentials, error) {
+	if strings.TrimSpace(cfg.CertFile) == "" {
+		return nil, fmt.Errorf("GRPC_TLS_CLIENT_CERT_FILE is required")
+	}
+	if strings.TrimSpace(cfg.KeyFile) == "" {
+		return nil, fmt.Errorf("GRPC_TLS_CLIENT_KEY_FILE is required")
+	}
+	if strings.TrimSpace(cfg.CAFile) == "" {
+		return nil, fmt.Errorf("GRPC_TLS_SERVER_CA_FILE is required")
+	}
+	if strings.TrimSpace(cfg.ServerName) == "" {
+		return nil, fmt.Errorf("GRPC_TLS_SERVER_NAME is required")
+	}
+
+	cert, err := tls.LoadX509KeyPair(cfg.CertFile, cfg.KeyFile)
+	if err != nil {
+		return nil, fmt.Errorf("load gRPC client certificate: %w", err)
+	}
+
+	serverCA, err := certPoolFromFile("GRPC_TLS_SERVER_CA_FILE", cfg.CAFile)
+	if err != nil {
+		return nil, err
+	}
+
+	return credentials.NewTLS(&tls.Config{
+		MinVersion:   tls.VersionTLS12,
+		Certificates: []tls.Certificate{cert},
+		RootCAs:      serverCA,
+		ServerName:   cfg.ServerName,
+	}), nil
 }
 
 func loopbackTarget(addr string) (string, error) {
@@ -42,4 +105,19 @@ func loopbackTarget(addr string) (string, error) {
 	}
 
 	return net.JoinHostPort(host, port), nil
+}
+
+func isLoopbackTarget(target string) bool {
+	host, _, err := net.SplitHostPort(target)
+	if err != nil {
+		return false
+	}
+
+	host = strings.TrimSpace(host)
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+
+	ip, err := netip.ParseAddr(host)
+	return err == nil && ip.IsLoopback()
 }

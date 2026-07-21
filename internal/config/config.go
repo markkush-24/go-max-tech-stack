@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net"
 	"net/http"
 	"net/netip"
 	"net/url"
@@ -32,8 +33,21 @@ type TLSConfig struct {
 }
 
 type GRPCConfig struct {
-	Enable bool
-	Addr   string
+	Enable           bool
+	Addr             string
+	ReflectionEnable bool
+	TLS              GRPCTLSConfig
+}
+
+type GRPCTLSConfig struct {
+	Enable         bool
+	CertFile       string
+	KeyFile        string
+	ClientCAFile   string
+	ClientCertFile string
+	ClientKeyFile  string
+	ServerCAFile   string
+	ServerName     string
 }
 
 type StreamingConfig struct {
@@ -243,8 +257,19 @@ func defaultConfig() Config {
 			},
 		},
 		GRPC: GRPCConfig{
-			Enable: false,
-			Addr:   ":9090",
+			Enable:           false,
+			Addr:             ":9090",
+			ReflectionEnable: false,
+			TLS: GRPCTLSConfig{
+				Enable:         false,
+				CertFile:       "",
+				KeyFile:        "",
+				ClientCAFile:   "",
+				ClientCertFile: "",
+				ClientKeyFile:  "",
+				ServerCAFile:   "",
+				ServerName:     "",
+			},
 		},
 		Streaming: StreamingConfig{
 			SSEHeartbeat:     15 * time.Second,
@@ -301,6 +326,57 @@ func Load() (Config, error) {
 		cfg.GRPC.Addr, err = lookupStringNonEmpty("GRPC_ADDR", cfg.GRPC.Addr)
 		if err != nil {
 			return Config{}, err
+		}
+
+		if _, _, err := splitListenAddr("GRPC_ADDR", cfg.GRPC.Addr); err != nil {
+			return Config{}, err
+		}
+
+		cfg.GRPC.ReflectionEnable, err = lookupBool("GRPC_REFLECTION_ENABLE", cfg.GRPC.ReflectionEnable)
+		if err != nil {
+			return Config{}, err
+		}
+
+		cfg.GRPC.TLS.Enable, err = lookupBool("GRPC_TLS_ENABLE", cfg.GRPC.TLS.Enable)
+		if err != nil {
+			return Config{}, err
+		}
+
+		if cfg.GRPC.ReflectionEnable && !isLoopbackListenAddr(cfg.GRPC.Addr) {
+			return Config{}, fmt.Errorf("GRPC_REFLECTION_ENABLE=true requires loopback GRPC_ADDR")
+		}
+
+		if cfg.GRPC.TLS.Enable {
+			cfg.GRPC.TLS.CertFile, err = lookupStringNonEmpty("GRPC_TLS_CERT_FILE", cfg.GRPC.TLS.CertFile)
+			if err != nil {
+				return Config{}, err
+			}
+			cfg.GRPC.TLS.KeyFile, err = lookupStringNonEmpty("GRPC_TLS_KEY_FILE", cfg.GRPC.TLS.KeyFile)
+			if err != nil {
+				return Config{}, err
+			}
+			cfg.GRPC.TLS.ClientCAFile, err = lookupStringNonEmpty("GRPC_TLS_CLIENT_CA_FILE", cfg.GRPC.TLS.ClientCAFile)
+			if err != nil {
+				return Config{}, err
+			}
+			cfg.GRPC.TLS.ClientCertFile, err = lookupStringNonEmpty("GRPC_TLS_CLIENT_CERT_FILE", cfg.GRPC.TLS.ClientCertFile)
+			if err != nil {
+				return Config{}, err
+			}
+			cfg.GRPC.TLS.ClientKeyFile, err = lookupStringNonEmpty("GRPC_TLS_CLIENT_KEY_FILE", cfg.GRPC.TLS.ClientKeyFile)
+			if err != nil {
+				return Config{}, err
+			}
+			cfg.GRPC.TLS.ServerCAFile, err = lookupStringNonEmpty("GRPC_TLS_SERVER_CA_FILE", cfg.GRPC.TLS.ServerCAFile)
+			if err != nil {
+				return Config{}, err
+			}
+			cfg.GRPC.TLS.ServerName, err = lookupStringNonEmpty("GRPC_TLS_SERVER_NAME", cfg.GRPC.TLS.ServerName)
+			if err != nil {
+				return Config{}, err
+			}
+		} else if !isLoopbackListenAddr(cfg.GRPC.Addr) {
+			return Config{}, fmt.Errorf("GRPC_TLS_ENABLE=false requires loopback GRPC_ADDR")
 		}
 	}
 
@@ -629,6 +705,35 @@ func lookupStringNonEmpty(key, def string) (string, error) {
 		return "", fmt.Errorf("%s but empty", key)
 	}
 	return v, nil
+}
+
+func splitListenAddr(key, addr string) (host string, port string, err error) {
+	host, port, err = net.SplitHostPort(addr)
+	if err != nil {
+		return "", "", fmt.Errorf("%s=%q: expected host:port: %w", key, addr, err)
+	}
+	if strings.TrimSpace(port) == "" {
+		return "", "", fmt.Errorf("%s=%q: port is empty", key, addr)
+	}
+	return host, port, nil
+}
+
+func isLoopbackListenAddr(addr string) bool {
+	host, _, err := splitListenAddr("GRPC_ADDR", addr)
+	if err != nil {
+		return false
+	}
+
+	host = strings.TrimSpace(host)
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	if host == "" {
+		return false
+	}
+
+	ip, err := netip.ParseAddr(host)
+	return err == nil && ip.IsLoopback()
 }
 
 func lookupIntPositive(key string, def int) (int, error) {

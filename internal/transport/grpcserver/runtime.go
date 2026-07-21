@@ -3,11 +3,13 @@ package grpcserver
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"pet-study/internal/interceptors"
 	"pet-study/internal/service"
 	"pet-study/internal/transport/pb"
+	"strings"
 	"sync"
 
 	"google.golang.org/grpc"
@@ -35,6 +37,19 @@ type grpcRuntimeServer interface {
 	Stop()
 }
 
+type Config struct {
+	Addr              string
+	ReflectionEnabled bool
+	TLS               TLSConfig
+}
+
+type TLSConfig struct {
+	Enable       bool
+	CertFile     string
+	KeyFile      string
+	ClientCAFile string
+}
+
 type Runtime struct {
 	addr     string
 	logger   *slog.Logger
@@ -52,24 +67,50 @@ type Runtime struct {
 }
 
 func NewRuntime(addr string, jobService *service.JobService, logger *slog.Logger) (*Runtime, error) {
-	listener, err := net.Listen("tcp", addr)
+	return NewRuntimeWithConfig(Config{Addr: addr}, jobService, logger)
+}
+
+func NewRuntimeWithConfig(cfg Config, jobService *service.JobService, logger *slog.Logger) (*Runtime, error) {
+	if strings.TrimSpace(cfg.Addr) == "" {
+		return nil, fmt.Errorf("grpc addr is required")
+	}
+
+	if cfg.ReflectionEnabled && !isLoopbackListenAddr(cfg.Addr) {
+		return nil, fmt.Errorf("grpc reflection requires a loopback listener")
+	}
+
+	serverOptions := []grpc.ServerOption{
+		grpc.ChainUnaryInterceptor(
+			interceptors.UnaryRequestIDAndLogging(logger),
+		),
+	}
+
+	if cfg.TLS.Enable {
+		creds, err := newServerTLSCredentials(cfg.TLS)
+		if err != nil {
+			return nil, err
+		}
+		serverOptions = append(serverOptions, grpc.Creds(creds))
+	} else if !isLoopbackListenAddr(cfg.Addr) {
+		return nil, fmt.Errorf("plaintext grpc requires a loopback listener")
+	}
+
+	grpcServer := grpc.NewServer(serverOptions...)
+
+	listener, err := net.Listen("tcp", cfg.Addr)
 	if err != nil {
 		return nil, err
 	}
 
 	grpcJobService := NewJobServer(jobService)
 
-	grpcServer := grpc.NewServer(
-		grpc.ChainUnaryInterceptor(
-			interceptors.UnaryRequestIDAndLogging(logger),
-		),
-	)
-
 	pb.RegisterJobsServiceServer(grpcServer, grpcJobService)
-	reflection.Register(grpcServer)
+	if cfg.ReflectionEnabled {
+		reflection.Register(grpcServer)
+	}
 
 	return &Runtime{
-		addr:         addr,
+		addr:         listener.Addr().String(),
 		logger:       logger,
 		listener:     listener,
 		server:       grpcServer,
@@ -77,6 +118,13 @@ func NewRuntime(addr string, jobService *service.JobService, logger *slog.Logger
 		done:         make(chan struct{}),
 		gracefulDone: make(chan struct{}),
 	}, nil
+}
+
+func (r *Runtime) Addr() string {
+	if r == nil {
+		return ""
+	}
+	return r.addr
 }
 
 func (r *Runtime) Start(stop context.CancelFunc) error {

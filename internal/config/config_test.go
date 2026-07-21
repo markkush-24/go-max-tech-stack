@@ -78,6 +78,18 @@ var validConfigEnv = []envKV{
 	{"SECURITY_HEADERS_HSTS_MAX_AGE", "1h"},
 }
 
+var optionalConfigEnv = []envKV{
+	{"GRPC_REFLECTION_ENABLE", "false"},
+	{"GRPC_TLS_ENABLE", "false"},
+	{"GRPC_TLS_CERT_FILE", "certs/grpc-server.pem"},
+	{"GRPC_TLS_KEY_FILE", "certs/grpc-server-key.pem"},
+	{"GRPC_TLS_CLIENT_CA_FILE", "certs/grpc-client-ca.pem"},
+	{"GRPC_TLS_CLIENT_CERT_FILE", "certs/grpc-client.pem"},
+	{"GRPC_TLS_CLIENT_KEY_FILE", "certs/grpc-client-key.pem"},
+	{"GRPC_TLS_SERVER_CA_FILE", "certs/grpc-server-ca.pem"},
+	{"GRPC_TLS_SERVER_NAME", "grpc.pet-study.internal"},
+}
+
 func TestLoad_Defaults(t *testing.T) {
 	clearConfigEnv(t)
 
@@ -105,7 +117,17 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.HTTP.TLS.Enable || cfg.HTTP.TLS.Addr != ":8443" || cfg.HTTP.TLS.CertFile != "" || cfg.HTTP.TLS.KeyFile != "" {
 		t.Fatalf("HTTP.TLS=%+v", cfg.HTTP.TLS)
 	}
-	if cfg.GRPC.Enable || cfg.GRPC.Addr != ":9090" {
+	if cfg.GRPC.Enable ||
+		cfg.GRPC.Addr != ":9090" ||
+		cfg.GRPC.ReflectionEnable ||
+		cfg.GRPC.TLS.Enable ||
+		cfg.GRPC.TLS.CertFile != "" ||
+		cfg.GRPC.TLS.KeyFile != "" ||
+		cfg.GRPC.TLS.ClientCAFile != "" ||
+		cfg.GRPC.TLS.ClientCertFile != "" ||
+		cfg.GRPC.TLS.ClientKeyFile != "" ||
+		cfg.GRPC.TLS.ServerCAFile != "" ||
+		cfg.GRPC.TLS.ServerName != "" {
 		t.Fatalf("GRPC=%+v", cfg.GRPC)
 	}
 	if cfg.DB.StorageBackend != "postgres" {
@@ -255,15 +277,57 @@ func TestLoad_OptionalTransports(t *testing.T) {
 			},
 		},
 		{
-			name: "gRPC enabled",
+			name: "gRPC enabled on loopback plaintext",
 			env: map[string]string{
 				"GRPC_ENABLE": "true",
-				"GRPC_ADDR":   ":19090",
+				"GRPC_ADDR":   "127.0.0.1:19090",
 			},
 			assert: func(t *testing.T, cfg Config) {
 				t.Helper()
-				if !cfg.GRPC.Enable || cfg.GRPC.Addr != ":19090" {
+				if !cfg.GRPC.Enable || cfg.GRPC.Addr != "127.0.0.1:19090" || cfg.GRPC.TLS.Enable {
 					t.Fatalf("GRPC=%+v", cfg.GRPC)
+				}
+			},
+		},
+		{
+			name: "gRPC reflection enabled on loopback",
+			env: map[string]string{
+				"GRPC_ENABLE":            "true",
+				"GRPC_ADDR":              "127.0.0.1:19090",
+				"GRPC_REFLECTION_ENABLE": "true",
+			},
+			assert: func(t *testing.T, cfg Config) {
+				t.Helper()
+				if !cfg.GRPC.ReflectionEnable {
+					t.Fatalf("GRPC.ReflectionEnable=false want true: %+v", cfg.GRPC)
+				}
+			},
+		},
+		{
+			name: "gRPC mTLS enabled",
+			env: map[string]string{
+				"GRPC_ENABLE":               "true",
+				"GRPC_ADDR":                 ":19090",
+				"GRPC_TLS_ENABLE":           "true",
+				"GRPC_TLS_CERT_FILE":        "certs/grpc-server.pem",
+				"GRPC_TLS_KEY_FILE":         "certs/grpc-server-key.pem",
+				"GRPC_TLS_CLIENT_CA_FILE":   "certs/grpc-client-ca.pem",
+				"GRPC_TLS_CLIENT_CERT_FILE": "certs/grpc-client.pem",
+				"GRPC_TLS_CLIENT_KEY_FILE":  "certs/grpc-client-key.pem",
+				"GRPC_TLS_SERVER_CA_FILE":   "certs/grpc-server-ca.pem",
+				"GRPC_TLS_SERVER_NAME":      "grpc.pet-study.internal",
+			},
+			assert: func(t *testing.T, cfg Config) {
+				t.Helper()
+				if !cfg.GRPC.TLS.Enable ||
+					cfg.GRPC.TLS.CertFile != "certs/grpc-server.pem" ||
+					cfg.GRPC.TLS.KeyFile != "certs/grpc-server-key.pem" ||
+					cfg.GRPC.TLS.ClientCAFile != "certs/grpc-client-ca.pem" ||
+					cfg.GRPC.TLS.ClientCertFile != "certs/grpc-client.pem" ||
+					cfg.GRPC.TLS.ClientKeyFile != "certs/grpc-client-key.pem" ||
+					cfg.GRPC.TLS.ServerCAFile != "certs/grpc-server-ca.pem" ||
+					cfg.GRPC.TLS.ServerName != "grpc.pet-study.internal" {
+					t.Fatalf("GRPC.TLS=%+v", cfg.GRPC.TLS)
 				}
 			},
 		},
@@ -305,6 +369,57 @@ func TestLoad_InvalidEnvironment(t *testing.T) {
 			name:    "gRPC enabled empty address",
 			env:     map[string]string{"GRPC_ENABLE": "true", "GRPC_ADDR": ""},
 			wantErr: "GRPC_ADDR",
+		},
+		{
+			name: "gRPC plaintext wildcard address",
+			env: map[string]string{
+				"GRPC_ENABLE": "true",
+				"GRPC_ADDR":   ":19090",
+			},
+			wantErr: "GRPC_TLS_ENABLE",
+		},
+		{
+			name: "gRPC reflection outside loopback",
+			env: map[string]string{
+				"GRPC_ENABLE":               "true",
+				"GRPC_ADDR":                 ":19090",
+				"GRPC_REFLECTION_ENABLE":    "true",
+				"GRPC_TLS_ENABLE":           "true",
+				"GRPC_TLS_CERT_FILE":        "certs/grpc-server.pem",
+				"GRPC_TLS_KEY_FILE":         "certs/grpc-server-key.pem",
+				"GRPC_TLS_CLIENT_CA_FILE":   "certs/grpc-client-ca.pem",
+				"GRPC_TLS_CLIENT_CERT_FILE": "certs/grpc-client.pem",
+				"GRPC_TLS_CLIENT_KEY_FILE":  "certs/grpc-client-key.pem",
+				"GRPC_TLS_SERVER_CA_FILE":   "certs/grpc-server-ca.pem",
+				"GRPC_TLS_SERVER_NAME":      "grpc.pet-study.internal",
+			},
+			wantErr: "GRPC_REFLECTION_ENABLE",
+		},
+		{
+			name: "gRPC TLS missing server cert",
+			env: map[string]string{
+				"GRPC_ENABLE":        "true",
+				"GRPC_ADDR":          ":19090",
+				"GRPC_TLS_ENABLE":    "true",
+				"GRPC_TLS_CERT_FILE": "",
+			},
+			wantErr: "GRPC_TLS_CERT_FILE",
+		},
+		{
+			name: "gRPC TLS missing server name",
+			env: map[string]string{
+				"GRPC_ENABLE":               "true",
+				"GRPC_ADDR":                 ":19090",
+				"GRPC_TLS_ENABLE":           "true",
+				"GRPC_TLS_CERT_FILE":        "certs/grpc-server.pem",
+				"GRPC_TLS_KEY_FILE":         "certs/grpc-server-key.pem",
+				"GRPC_TLS_CLIENT_CA_FILE":   "certs/grpc-client-ca.pem",
+				"GRPC_TLS_CLIENT_CERT_FILE": "certs/grpc-client.pem",
+				"GRPC_TLS_CLIENT_KEY_FILE":  "certs/grpc-client-key.pem",
+				"GRPC_TLS_SERVER_CA_FILE":   "certs/grpc-server-ca.pem",
+				"GRPC_TLS_SERVER_NAME":      "",
+			},
+			wantErr: "GRPC_TLS_SERVER_NAME",
 		},
 		{
 			name:    "invalid positive duration",
@@ -490,8 +605,9 @@ func clearConfigEnv(t *testing.T) {
 		ok    bool
 	}
 
-	old := make(map[string]oldValue, len(validConfigEnv))
-	for _, kv := range validConfigEnv {
+	keys := allConfigEnv()
+	old := make(map[string]oldValue, len(keys))
+	for _, kv := range keys {
 		v, ok := os.LookupEnv(kv.key)
 		old[kv.key] = oldValue{value: v, ok: ok}
 		if err := os.Unsetenv(kv.key); err != nil {
@@ -500,7 +616,7 @@ func clearConfigEnv(t *testing.T) {
 	}
 
 	t.Cleanup(func() {
-		for _, kv := range validConfigEnv {
+		for _, kv := range keys {
 			if previous, ok := old[kv.key]; ok && previous.ok {
 				_ = os.Setenv(kv.key, previous.value)
 			} else {
@@ -508,6 +624,13 @@ func clearConfigEnv(t *testing.T) {
 			}
 		}
 	})
+}
+
+func allConfigEnv() []envKV {
+	out := make([]envKV, 0, len(validConfigEnv)+len(optionalConfigEnv))
+	out = append(out, validConfigEnv...)
+	out = append(out, optionalConfigEnv...)
+	return out
 }
 
 func findRepoRoot(t *testing.T) string {

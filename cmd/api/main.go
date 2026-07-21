@@ -134,12 +134,30 @@ func run() error {
 	)
 
 	if cfg.GRPC.Enable {
-		grpcRuntime, err = grpcserver.NewRuntime(cfg.GRPC.Addr, jobService, logger)
+		grpcRuntime, err = grpcserver.NewRuntimeWithConfig(grpcserver.Config{
+			Addr:              cfg.GRPC.Addr,
+			ReflectionEnabled: cfg.GRPC.ReflectionEnable,
+			TLS: grpcserver.TLSConfig{
+				Enable:       cfg.GRPC.TLS.Enable,
+				CertFile:     cfg.GRPC.TLS.CertFile,
+				KeyFile:      cfg.GRPC.TLS.KeyFile,
+				ClientCAFile: cfg.GRPC.TLS.ClientCAFile,
+			},
+		}, jobService, logger)
 		if err != nil {
 			return err
 		}
 
-		jobsGRPCClient, grpcConn, err = grpcclient.NewJobsClient(cfg.GRPC.Addr)
+		jobsGRPCClient, grpcConn, err = grpcclient.NewJobsClientWithConfig(grpcclient.Config{
+			Addr: cfg.GRPC.Addr,
+			TLS: grpcclient.TLSConfig{
+				Enable:     cfg.GRPC.TLS.Enable,
+				CertFile:   cfg.GRPC.TLS.ClientCertFile,
+				KeyFile:    cfg.GRPC.TLS.ClientKeyFile,
+				CAFile:     cfg.GRPC.TLS.ServerCAFile,
+				ServerName: cfg.GRPC.TLS.ServerName,
+			},
+		})
 		if err != nil {
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.HTTP.ShutdownTimeout)
 			defer cancel()
