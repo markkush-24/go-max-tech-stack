@@ -43,8 +43,8 @@ Remove defects that can corrupt state, bypass security or make shutdown results 
 | [TASK-013](tasks/TASK-013-queue-admission-contract.md) | P0 | TASK-007 | DONE | Define deterministic queue cancellation and StopAccepting semantics |
 | [TASK-014](tasks/TASK-014-async-event-topology.md) | P0 | TASK-010, TASK-013 | DONE | Correct async transition ordering and use one Event Hub in testkit |
 | [TASK-015](tasks/TASK-015-grpc-runtime-owner.md) | P0 | TASK-007 | DONE | Give the gRPC runtime single-start/single-stop ownership |
-| [TASK-016](tasks/TASK-016-application-supervisor.md) | P0 | TASK-011, TASK-015 | READY | Introduce one application supervisor for HTTP, HTTPS, gRPC, workers and streams |
-| [TASK-017](tasks/TASK-017-shutdown-budget-outcome.md) | P0 | TASK-016, TASK-012 | BLOCKED | Implement one global shutdown budget and truthful outcome model |
+| [TASK-016](tasks/TASK-016-application-supervisor.md) | P0 | TASK-011, TASK-015 | DONE | Introduce one application supervisor for HTTP, HTTPS, gRPC, workers and streams |
+| [TASK-017](tasks/TASK-017-shutdown-budget-outcome.md) | P0 | TASK-016, TASK-012 | READY | Implement one global shutdown budget and truthful outcome model |
 | [TASK-018](tasks/TASK-018-grpc-security-decision.md) | P0 | TASK-005 | READY | Record the direct gRPC trust and exposure model |
 | [TASK-019](tasks/TASK-019-grpc-transport-security.md) | P0 | TASK-018, TASK-015 | BLOCKED | Add gRPC TLS or mTLS and environment-controlled reflection |
 | [TASK-020](tasks/TASK-020-grpc-authz.md) | P0 | TASK-018, TASK-019 | BLOCKED | Add gRPC authentication, RBAC and owner authorization |
@@ -57,9 +57,9 @@ Introduce stable logging, tracing and metric ownership without changing business
 
 | Task | Priority | Dependencies | Initial status | Title |
 |---|---|---|---|---|
-| [TASK-023](tasks/TASK-023-logging-schema-config.md) | P1 | TASK-016 | BLOCKED | Normalize logger ownership, component attribution and field schema |
+| [TASK-023](tasks/TASK-023-logging-schema-config.md) | P1 | TASK-016 | READY | Normalize logger ownership, component attribution and field schema |
 | [TASK-024](tasks/TASK-024-logging-policy-events.md) | P1 | TASK-023 | BLOCKED | Add redaction policy and coherent security, retry, SSE and shutdown events |
-| [TASK-025](tasks/TASK-025-telemetry-bootstrap.md) | P1 | TASK-016 | BLOCKED | Create telemetry configuration, Resource and bootstrap runtime |
+| [TASK-025](tasks/TASK-025-telemetry-bootstrap.md) | P1 | TASK-016 | READY | Create telemetry configuration, Resource and bootstrap runtime |
 | [TASK-026](tasks/TASK-026-telemetry-lifecycle.md) | P1 | TASK-025, TASK-017 | BLOCKED | Integrate telemetry fail-open, ForceFlush and Shutdown lifecycle |
 | [TASK-027](tasks/TASK-027-async-propagation-envelope.md) | P1 | TASK-013, TASK-011, TASK-025 | BLOCKED | Add broker-compatible async propagation envelope and per-job context |
 | [TASK-028](tasks/TASK-028-log-trace-correlation.md) | P1 | TASK-023, TASK-025 | BLOCKED | Inject request ID, trace ID and span ID into contextual slog events |
@@ -138,7 +138,7 @@ Make contracts and high-risk behavior reproducibly verifiable in CI.
 
 | Task | Priority | Dependencies | Initial status | Title |
 |---|---|---|---|---|
-| [TASK-076](tasks/TASK-076-production-testkit.md) | P1 | TASK-016, TASK-014 | BLOCKED | Create production-faithful and explicitly scoped testkit fixtures |
+| [TASK-076](tasks/TASK-076-production-testkit.md) | P1 | TASK-016, TASK-014 | READY | Create production-faithful and explicitly scoped testkit fixtures |
 | [TASK-077](tasks/TASK-077-concurrency-regression-suite.md) | P0 | TASK-012, TASK-010, TASK-033 | BLOCKED | Commit regression tests for queue, worker, Job state and metrics races |
 | [TASK-078](tasks/TASK-078-postgres-integration-tests.md) | P0 | TASK-007 | READY | Add PostgreSQL repository, migration and transaction integration tests |
 | [TASK-079](tasks/TASK-079-openapi-spec.md) | P1 | TASK-063, TASK-065, TASK-070, TASK-066 | BLOCKED | Create the machine-readable OpenAPI source of truth |

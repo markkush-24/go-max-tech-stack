@@ -494,3 +494,32 @@ Notes:
 Unlocked tasks:
 - TASK-016
 ```
+
+```text
+Task: TASK-016
+Accepted: 2026-07-21
+Commit: 394a7f54
+Reviewer: Mark
+Verification:
+- gofmt -w cmd/api/main.go internal/api/server.go internal/api/server_supervisor_test.go: PASS
+- go test -count=1 ./internal/api/...: PASS
+- go test -count=1 -run "TestRunReturnsGRPCFatalErrorAndStopsOwnedComponents|TestRunHTTPFailureUsesUnifiedCleanup" -v ./internal/api: PASS
+- go test ./internal/api/... ./internal/transport/grpcserver/...: PASS
+- go test -race ./internal/api/...: FAIL; local CGO_ENABLED=0 rejects -race
+- CGO_ENABLED=1 go test -race ./internal/api/...: FAIL; local runtime/cgo could not find gcc in PATH
+- go test ./...: PASS
+- go vet ./internal/api/... ./internal/transport/grpcserver/...: PASS
+- staticcheck ./...: PASS
+- git diff --check: PASS
+Notes:
+- Moved WorkerPool and gRPC runtime startup under APIServer.Run supervision so main only constructs components.
+- Added one cleanup path for signal shutdown, HTTP/HTTPS serve failure and gRPC runtime failure.
+- Added regressions proving gRPC fatal Serve errors return from Run and unexpected HTTP failures stop owned components.
+- Remaining limitation: local Windows race verification requires CGO plus a C compiler.
+- Remaining limitation: shutdown still uses the existing per-component timeout model; one global shutdown budget belongs to TASK-017.
+Unlocked tasks:
+- TASK-017
+- TASK-023
+- TASK-025
+- TASK-076
+```
