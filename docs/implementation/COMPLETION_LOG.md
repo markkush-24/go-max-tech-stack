@@ -600,3 +600,26 @@ Notes:
 Unlocked tasks:
 - TASK-020
 ```
+
+```text
+Task: TASK-020
+Accepted: 2026-07-21
+Commit: 35cb8646
+Reviewer: Mark
+Verification:
+- gofmt -w internal/interceptors/auth.go internal/interceptors/auth_test.go internal/transport/grpcserver/grpc_job_service.go internal/transport/grpcserver/runtime.go internal/transport/grpcserver/grpc_test.go internal/transport/grpcserver/grpc_authz_test.go internal/transport/grpcserver/transport_security_test.go internal/transport/grpcserver/runtime_test.go internal/routes/job_handler.go internal/routes/job_handler_test.go cmd/api/main.go: PASS
+- go test ./internal/interceptors/... ./internal/transport/grpcserver/...: PASS
+- go test ./internal/routes/... ./cmd/api: PASS
+- go test ./...: PASS
+- .\scripts\run-staticcheck.ps1: PASS
+- go vet ./...: PASS
+- git diff --check: PASS
+Notes:
+- Added gRPC bearer authentication through the existing security.Verifier and mapped the verified Principal into request context.
+- Enforced owner/admin authorization for JobsService.GetJob and verified missing, invalid, forbidden, owner and admin calls.
+- Wired the application JWT verifier into the gRPC runtime and forwarded HTTP Authorization metadata through the HTTP-to-gRPC bridge.
+- Remaining limitation: TASK-021 still owns metadata append semantics, request-ID sanitization/response metadata, bridge timeout and expanded gRPC/HTTP error taxonomy.
+- Remaining limitation: post-acceptance local inspection shows commit 35cb8646 does not include internal/interceptors/auth.go, internal/interceptors/auth_test.go or internal/transport/grpcserver/grpc_authz_test.go; a clean checkout of that exact commit may not compile until those files are committed.
+Unlocked tasks:
+- TASK-021
+```
