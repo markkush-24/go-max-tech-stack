@@ -571,3 +571,32 @@ Notes:
 Unlocked tasks:
 - TASK-019
 ```
+
+```text
+Task: TASK-019
+Accepted: 2026-07-21
+Commit: eb8876d7
+Reviewer: Mark
+Verification:
+- go test -count=1 ./internal/config/...: PASS
+- go test -count=1 ./internal/transport/grpcserver/... ./internal/transport/grpcclient/...: PASS
+- go test -count=3 ./internal/transport/grpcserver/... ./internal/transport/grpcclient/...: PASS
+- go test ./internal/transport/grpcserver/... ./internal/transport/grpcclient/...: PASS
+- go test ./internal/config/...: PASS
+- go test ./...: PASS
+- go test -count=1 ./...: PASS
+- go vet ./internal/transport/grpcserver/... ./internal/transport/grpcclient/... ./internal/config/...: PASS
+- go vet ./...: PASS
+- staticcheck ./...: PASS
+- git diff --check: PASS
+- go test -race ./internal/transport/grpcserver/... ./internal/transport/grpcclient/...: FAIL; local CGO_ENABLED=0 rejects -race
+- CGO_ENABLED=1 go test -race ./internal/transport/grpcserver/... ./internal/transport/grpcclient/...: FAIL; local runtime/cgo could not find gcc in PATH
+Notes:
+- Added gRPC mTLS transport configuration for the server and bridge client.
+- Restricted plaintext gRPC to loopback/development listeners.
+- Disabled reflection by default and allowed it only through explicit loopback configuration.
+- Added temporary-certificate integration tests for mTLS, plaintext rejection, server-name validation, reflection policy and startup misconfiguration.
+- Remaining limitation: gRPC authentication/RBAC is still intentionally left for TASK-020; local Windows race verification requires CGO plus a C compiler.
+Unlocked tasks:
+- TASK-020
+```
