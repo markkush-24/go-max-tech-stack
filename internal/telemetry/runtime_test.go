@@ -1,8 +1,12 @@
 package telemetry
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"log/slog"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -13,6 +17,7 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
 
@@ -179,6 +184,48 @@ func TestNewResourceRejectsInvalidOTelResourceEnvironmentWhenEnabled(t *testing.
 	}
 }
 
+func TestNewFailOpenDisablesTelemetryOnBootstrapFailure(t *testing.T) {
+	suppressOTelErrors(t)
+	t.Setenv("OTEL_RESOURCE_ATTRIBUTES", "invalid-resource-attribute")
+
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&logs, nil))
+	rt, err := NewFailOpen(context.Background(), config.TelemetryConfig{
+		Enabled:         true,
+		ShutdownTimeout: time.Second,
+	}, BuildInfo{
+		ServiceName:       "pet-study-test",
+		ServiceVersion:    "test-version",
+		ServiceInstanceID: "fail-open-instance",
+		Environment:       config.EnvironmentTest,
+	}, logger)
+	if err != nil {
+		t.Fatalf("NewFailOpen() error = %v", err)
+	}
+	t.Cleanup(func() {
+		if err := rt.Shutdown(context.Background()); err != nil {
+			t.Fatalf("Shutdown() error = %v", err)
+		}
+	})
+
+	if rt.Enabled() {
+		t.Fatal("Runtime.Enabled()=true want false after fail-open fallback")
+	}
+	snapshot := rt.Diagnostics()
+	if snapshot.StartupFailures != 1 {
+		t.Fatalf("StartupFailures=%d want=1", snapshot.StartupFailures)
+	}
+	if snapshot.LastStartupFailureKind != "telemetry" {
+		t.Fatalf("LastStartupFailureKind=%q want telemetry", snapshot.LastStartupFailureKind)
+	}
+	if got := logs.String(); !strings.Contains(got, `"event":"telemetry.bootstrap.failed"`) {
+		t.Fatalf("logs=%q want telemetry.bootstrap.failed event", got)
+	}
+	if got := logs.String(); strings.Contains(got, "invalid-resource-attribute") {
+		t.Fatalf("logs must not include raw telemetry bootstrap error, got %q", got)
+	}
+}
+
 func TestInstallGlobalsUsesRuntimeProvidersAndPropagator(t *testing.T) {
 	previousTracerProvider := otel.GetTracerProvider()
 	previousMeterProvider := otel.GetMeterProvider()
@@ -217,6 +264,153 @@ func TestInstallGlobalsUsesRuntimeProvidersAndPropagator(t *testing.T) {
 	}
 	if fields := otel.GetTextMapPropagator().Fields(); !sameStrings(fields, propagation.TraceContext{}.Fields()) {
 		t.Fatalf("global propagator fields=%v want trace context fields", fields)
+	}
+}
+
+func TestInstallGlobalsSurfacesOTelErrorsThroughDiagnostics(t *testing.T) {
+	previousTracerProvider := otel.GetTracerProvider()
+	previousMeterProvider := otel.GetMeterProvider()
+	previousPropagator := otel.GetTextMapPropagator()
+	previousErrorHandler := otel.GetErrorHandler()
+	t.Cleanup(func() {
+		otel.SetTracerProvider(previousTracerProvider)
+		otel.SetMeterProvider(previousMeterProvider)
+		otel.SetTextMapPropagator(previousPropagator)
+		otel.SetErrorHandler(previousErrorHandler)
+	})
+
+	rt, err := newRuntime(context.Background(), config.TelemetryConfig{
+		Enabled:         false,
+		ShutdownTimeout: time.Second,
+	}, BuildInfo{
+		ServiceName:       "pet-study-test",
+		ServiceVersion:    "test-version",
+		ServiceInstanceID: "diagnostics-instance",
+		Environment:       config.EnvironmentTest,
+	}, runtimeOptions{
+		diagnosticsLogInterval: time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("newRuntime() error = %v", err)
+	}
+	t.Cleanup(func() {
+		if err := rt.Shutdown(context.Background()); err != nil {
+			t.Fatalf("Shutdown() error = %v", err)
+		}
+	})
+
+	var logs bytes.Buffer
+	rt.InstallGlobalsWithLogger(slog.New(slog.NewJSONHandler(&logs, nil)))
+
+	otel.Handle(errors.New("collector token secret"))
+	otel.Handle(context.DeadlineExceeded)
+
+	snapshot := rt.Diagnostics()
+	if snapshot.ExportFailures != 2 {
+		t.Fatalf("ExportFailures=%d want=2", snapshot.ExportFailures)
+	}
+	if snapshot.SuppressedExportLogs != 1 {
+		t.Fatalf("SuppressedExportLogs=%d want=1", snapshot.SuppressedExportLogs)
+	}
+	if snapshot.LastExportFailureKind != "deadline_exceeded" {
+		t.Fatalf("LastExportFailureKind=%q want deadline_exceeded", snapshot.LastExportFailureKind)
+	}
+	if got := logs.String(); !strings.Contains(got, `"event":"telemetry.export.failed"`) {
+		t.Fatalf("logs=%q want telemetry.export.failed event", got)
+	}
+	if got := logs.String(); strings.Contains(got, "collector token secret") {
+		t.Fatalf("logs must not include raw telemetry export error, got %q", got)
+	}
+}
+
+func TestShutdownForceFlushesAndShutsDownOnce(t *testing.T) {
+	ctx := context.Background()
+	exporter := &countingSpanExporter{}
+	rt, err := newRuntime(ctx, config.TelemetryConfig{
+		Enabled:         true,
+		ShutdownTimeout: time.Second,
+	}, BuildInfo{
+		ServiceName:       "pet-study-test",
+		ServiceVersion:    "test-version",
+		ServiceInstanceID: "shutdown-instance",
+		Environment:       config.EnvironmentTest,
+	}, runtimeOptions{
+		traceExporter:   exporter,
+		metricReader:    metric.NewManualReader(),
+		resourceFromEnv: false,
+	})
+	if err != nil {
+		t.Fatalf("newRuntime() error = %v", err)
+	}
+
+	_, span := rt.TracerProvider().Tracer("telemetry-test").Start(ctx, "final-span")
+	span.End()
+
+	if err := rt.Shutdown(ctx); err != nil {
+		t.Fatalf("Shutdown() error = %v", err)
+	}
+	if err := rt.Shutdown(ctx); err != nil {
+		t.Fatalf("second Shutdown() error = %v", err)
+	}
+	if got := exporter.exportCalls.Load(); got != 1 {
+		t.Fatalf("export calls=%d want=1", got)
+	}
+	if got := exporter.shutdownCalls.Load(); got != 1 {
+		t.Fatalf("shutdown calls=%d want=1", got)
+	}
+	snapshot := rt.Diagnostics()
+	if snapshot.ForceFlushes != 1 {
+		t.Fatalf("ForceFlushes=%d want=1", snapshot.ForceFlushes)
+	}
+	if snapshot.Shutdowns != 1 {
+		t.Fatalf("Shutdowns=%d want=1", snapshot.Shutdowns)
+	}
+}
+
+func TestShutdownHonorsContextBudget(t *testing.T) {
+	ctx := context.Background()
+	exporter := &blockingSpanExporter{}
+	rt, err := newRuntime(ctx, config.TelemetryConfig{
+		Enabled:         true,
+		ShutdownTimeout: 20 * time.Millisecond,
+	}, BuildInfo{
+		ServiceName:       "pet-study-test",
+		ServiceVersion:    "test-version",
+		ServiceInstanceID: "shutdown-budget-instance",
+		Environment:       config.EnvironmentTest,
+	}, runtimeOptions{
+		traceExporter:   exporter,
+		metricReader:    metric.NewManualReader(),
+		resourceFromEnv: false,
+	})
+	if err != nil {
+		t.Fatalf("newRuntime() error = %v", err)
+	}
+
+	_, span := rt.TracerProvider().Tracer("telemetry-test").Start(ctx, "final-span")
+	span.End()
+
+	shutdownCtx, cancel := context.WithTimeout(ctx, 20*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	err = rt.Shutdown(shutdownCtx)
+	elapsed := time.Since(started)
+
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Shutdown() error=%v want context deadline exceeded", err)
+	}
+	if elapsed > 500*time.Millisecond {
+		t.Fatalf("Shutdown() elapsed=%s want <=500ms", elapsed)
+	}
+	if exporter.exportCalls.Load() != 1 {
+		t.Fatalf("export calls=%d want=1", exporter.exportCalls.Load())
+	}
+	snapshot := rt.Diagnostics()
+	if snapshot.ForceFlushes != 1 {
+		t.Fatalf("ForceFlushes=%d want=1", snapshot.ForceFlushes)
+	}
+	if snapshot.Shutdowns != 1 {
+		t.Fatalf("Shutdowns=%d want=1", snapshot.Shutdowns)
 	}
 }
 
@@ -259,4 +453,33 @@ func suppressOTelErrors(t *testing.T) {
 	t.Cleanup(func() {
 		otel.SetErrorHandler(previous)
 	})
+}
+
+type countingSpanExporter struct {
+	exportCalls   atomic.Uint64
+	shutdownCalls atomic.Uint64
+}
+
+func (e *countingSpanExporter) ExportSpans(_ context.Context, _ []sdktrace.ReadOnlySpan) error {
+	e.exportCalls.Add(1)
+	return nil
+}
+
+func (e *countingSpanExporter) Shutdown(_ context.Context) error {
+	e.shutdownCalls.Add(1)
+	return nil
+}
+
+type blockingSpanExporter struct {
+	exportCalls atomic.Uint64
+}
+
+func (e *blockingSpanExporter) ExportSpans(ctx context.Context, _ []sdktrace.ReadOnlySpan) error {
+	e.exportCalls.Add(1)
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+func (e *blockingSpanExporter) Shutdown(_ context.Context) error {
+	return nil
 }

@@ -67,12 +67,15 @@ func run(cfg config.Config, rootLogger *slog.Logger) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	telemetryRuntime, err := telemetry.New(ctx, cfg.Telemetry, telemetryBuildInfo(cfg))
+	telemetryLogger := rootLogger.With(config.LogFieldComponent, telemetry.LogComponent)
+	telemetryRuntime, err := telemetry.NewFailOpen(ctx, cfg.Telemetry, telemetryBuildInfo(cfg), telemetryLogger)
 	if err != nil {
 		return err
 	}
-	telemetryRuntime.InstallGlobals()
-	defer shutdownTelemetry(telemetryRuntime, cfg.Telemetry.ShutdownTimeout, logger)
+	telemetryRuntime.InstallGlobalsWithLogger(telemetryLogger)
+	// Registered before business-component defers so telemetry is flushed after
+	// DB, outbound HTTP and gRPC client cleanup have had a chance to emit final signals.
+	defer shutdownTelemetry(telemetryRuntime, cfg.Telemetry.ShutdownTimeout, telemetryLogger)
 
 	var (
 		userRepository service.UserRepository
