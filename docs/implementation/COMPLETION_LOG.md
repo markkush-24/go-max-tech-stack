@@ -671,3 +671,24 @@ Unlocked tasks:
 - TASK-068
 - TASK-069
 ```
+
+```text
+Task: TASK-023
+Accepted: 2026-08-04
+Commit: 9872ca77
+Reviewer: Mark
+Verification:
+- go test ./internal/config/...: PASS
+- go test ./internal/middleware/... ./internal/outbound/... ./internal/interceptors/...: FAIL; first run caught a missing logger argument in the updated recover test before fix
+- go test ./internal/middleware/... ./internal/outbound/... ./internal/interceptors/...: PASS
+- go test ./...: PASS
+- git diff --check: PASS
+Notes:
+- Added configurable logging through LOG_LEVEL, LOG_FORMAT and LOG_ADD_SOURCE.
+- Normalized logger ownership with a component-free root logger and explicit component child loggers for main, HTTP access/recover, outbound Profile and gRPC server logging.
+- Standardized logged method, route, status, request_id and duration_ms fields across HTTP access, outbound Profile and gRPC interceptor logs.
+- Removed duplicate component attribution from the TASK-023 logging surfaces.
+- Remaining limitations/risks: none known for the accepted TASK-023 scope.
+Unlocked tasks:
+- TASK-024
+```
