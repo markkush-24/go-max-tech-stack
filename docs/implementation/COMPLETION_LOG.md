@@ -692,3 +692,27 @@ Notes:
 Unlocked tasks:
 - TASK-024
 ```
+
+```text
+Task: TASK-024
+Accepted: 2026-08-04
+Commit: 46fae392
+Reviewer: Mark
+Verification:
+- go test ./internal/middleware/...: PASS
+- go test ./internal/outbound/...: PASS
+- go test ./internal/api/...: PASS
+- go test ./internal/middleware/... ./internal/outbound/... ./internal/api/...: PASS
+- go test ./...: PASS
+- git diff --check: PASS
+- git diff --cached --check: PASS
+- git diff -- docs/implementation docs/audit: PASS; no forbidden docs changed
+Notes:
+- Documented the logging privacy policy, allowed fields, forbidden sensitive data and propagation contract.
+- Added safe AuthN/AuthZ/CORS denial audit events, grouped Profile retry logs, SSE lifecycle/write-failure logs and one shutdown summary with trigger, outcome, duration and aggregate counts.
+- Removed high-risk data from the TASK-024 logging surfaces: raw tokens, request/response bodies, raw CORS origins/header values, outbound user IDs and raw outbound errors.
+- Remaining limitations/risks: legacy internal/httputils.AppHandler diagnostic logging was outside TASK-024 scope and was not changed.
+- Remaining limitations/risks: component-specific APIServer server-error diagnostics may still include raw server errors; the final shutdown summary does not.
+Unlocked tasks:
+- none
+```
