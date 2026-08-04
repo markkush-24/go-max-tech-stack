@@ -751,3 +751,24 @@ Unlocked tasks:
 - TASK-031
 - TASK-032
 ```
+
+```text
+Task: TASK-026
+Accepted: 2026-08-04
+Commit: 28d248af
+Reviewer: Mark
+Verification:
+- go test ./internal/telemetry/...: PASS
+- go test ./internal/api/...: PASS
+- go test ./internal/telemetry/... ./internal/api/...: PASS
+- go test ./...: PASS
+Notes:
+- Added fail-open telemetry bootstrap: startup telemetry failures fall back to disabled runtime instead of failing the app.
+- Added bounded OTLP exporter behavior, telemetry diagnostics, rate-limited export failure logging and ForceFlush before provider Shutdown.
+- Wired cmd/api/main.go so telemetry cleanup runs after business-component defers.
+- Result: TASK-026 acceptance criteria passed and review accepted.
+- Remaining limitations/risks: no live collector outage integration test was added; behavior is covered through fail-open and SDK error-handler unit tests.
+- Remaining limitations/risks: queue, retry and timeout values are not externally configurable yet.
+Unlocked tasks:
+- none
+```

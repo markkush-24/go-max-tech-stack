@@ -60,7 +60,7 @@ Introduce stable logging, tracing and metric ownership without changing business
 | [TASK-023](tasks/TASK-023-logging-schema-config.md) | P1 | TASK-016 | DONE | Normalize logger ownership, component attribution and field schema |
 | [TASK-024](tasks/TASK-024-logging-policy-events.md) | P1 | TASK-023 | DONE | Add redaction policy and coherent security, retry, SSE and shutdown events |
 | [TASK-025](tasks/TASK-025-telemetry-bootstrap.md) | P1 | TASK-016 | DONE | Create telemetry configuration, Resource and bootstrap runtime |
-| [TASK-026](tasks/TASK-026-telemetry-lifecycle.md) | P1 | TASK-025, TASK-017 | READY | Integrate telemetry fail-open, ForceFlush and Shutdown lifecycle |
+| [TASK-026](tasks/TASK-026-telemetry-lifecycle.md) | P1 | TASK-025, TASK-017 | DONE | Integrate telemetry fail-open, ForceFlush and Shutdown lifecycle |
 | [TASK-027](tasks/TASK-027-async-propagation-envelope.md) | P1 | TASK-013, TASK-011, TASK-025 | READY | Add broker-compatible async propagation envelope and per-job context |
 | [TASK-028](tasks/TASK-028-log-trace-correlation.md) | P1 | TASK-023, TASK-025 | READY | Inject request ID, trace ID and span ID into contextual slog events |
 | [TASK-029](tasks/TASK-029-http-tracing.md) | P1 | TASK-025, TASK-008 | READY | Instrument inbound HTTP while preserving ServeMux route identity |
