@@ -10,6 +10,7 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
+	"pet-study/internal/config"
 	"pet-study/internal/requestid"
 )
 
@@ -41,10 +42,10 @@ func UnaryRequestIDAndLogging(logger *slog.Logger) grpc.UnaryServerInterceptor {
 		resp, err := handler(ctx, req)
 
 		logger.Info("grpc request completed",
-			"request_id", rid,
-			"method", info.FullMethod,
+			config.LogFieldRequestID, rid,
+			config.LogFieldMethod, info.FullMethod,
 			"code", status.Code(err).String(),
-			"duration", time.Since(start),
+			config.LogFieldDurationMS, time.Since(start).Milliseconds(),
 		)
 
 		return resp, err

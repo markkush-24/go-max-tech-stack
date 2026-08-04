@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net/http"
 	"net/url"
 	"time"
 
+	"pet-study/internal/config"
 	"pet-study/internal/metrics"
 	"pet-study/internal/outbound/profile"
 )
@@ -28,7 +30,11 @@ func NewInstrumentedProfileClient(baseURL *url.URL, next profile.Client, l *slog
 }
 
 func (c *InstrumentedProfileClient) FetchProfile(ctx context.Context, userID int64, requestID string) (profile.Profile, error) {
-	const route = "GET /profiles/{user_id}"
+	const (
+		method       = http.MethodGet
+		route        = "/profiles/{user_id}"
+		metricsRoute = method + " " + route
+	)
 
 	start := time.Now()
 	p, err := c.next.FetchProfile(ctx, userID, requestID)
@@ -43,31 +49,31 @@ func (c *InstrumentedProfileClient) FetchProfile(ctx context.Context, userID int
 		}
 		c.m.IncError(profile.KindLabel(err))
 	}
-	c.m.Observe(c.host, route, status, d)
+	c.m.Observe(c.host, metricsRoute, status, d)
 
 	if c.l != nil {
 		if err != nil {
 			c.l.Warn(
 				"outbound request failed",
-				"component", "outbound_profile",
-				"request_id", requestID,
+				config.LogFieldRequestID, requestID,
 				"host", c.host,
-				"route", route,
+				config.LogFieldMethod, method,
+				config.LogFieldRoute, route,
 				"user_id", userID,
-				"status", status,
-				"latency_ms", d.Milliseconds(),
-				"err", err,
+				config.LogFieldStatus, status,
+				config.LogFieldDurationMS, d.Milliseconds(),
+				config.LogFieldError, err,
 			)
 		} else {
 			c.l.Info(
 				"outbound request completed",
-				"component", "outbound_profile",
-				"request_id", requestID,
+				config.LogFieldRequestID, requestID,
 				"host", c.host,
-				"route", route,
+				config.LogFieldMethod, method,
+				config.LogFieldRoute, route,
 				"user_id", userID,
-				"status", status,
-				"latency_ms", d.Milliseconds(),
+				config.LogFieldStatus, status,
+				config.LogFieldDurationMS, d.Milliseconds(),
 			)
 		}
 	}

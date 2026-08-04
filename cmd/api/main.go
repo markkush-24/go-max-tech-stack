@@ -35,19 +35,32 @@ import (
 )
 
 func main() {
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
-	}))
+	cfg, err := config.Load()
+	logger := fallbackLogger()
+	if err == nil {
+		logger, err = config.NewLogger(os.Stderr, cfg.Logging)
+	}
+	if err != nil {
+		logger.Error("application exited", config.LogFieldComponent, config.LogComponentMain, config.LogFieldError, err)
+		os.Exit(1)
+	}
 	slog.SetDefault(logger)
 
-	if err := run(); err != nil {
-		logger.Error("application exited", "component", "main", "err", err)
+	if err := run(cfg, logger); err != nil {
+		logger.With(config.LogFieldComponent, config.LogComponentMain).
+			Error("application exited", config.LogFieldError, err)
 		os.Exit(1)
 	}
 }
 
-func run() error {
-	logger := slog.Default().With("component", "main")
+func fallbackLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	}))
+}
+
+func run(cfg config.Config, rootLogger *slog.Logger) error {
+	logger := rootLogger.With(config.LogFieldComponent, config.LogComponentMain)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -57,11 +70,6 @@ func run() error {
 		sqlDB          *db.DB
 		repoReady      func(context.Context) error
 	)
-
-	cfg, err := config.Load()
-	if err != nil {
-		return err
-	}
 
 	proxyAPI, err := middleware.NewProxyAPI(cfg.Proxy)
 	if err != nil {
@@ -117,7 +125,11 @@ func run() error {
 	defer tr.CloseIdleConnections()
 
 	rawProfileClient := outbound.NewClientImpl(cfg.Outbound.Profile.Base, httpClient)
-	instrumented := outbound.NewInstrumentedProfileClient(cfg.Outbound.Profile.Base, rawProfileClient, logger)
+	instrumented := outbound.NewInstrumentedProfileClient(
+		cfg.Outbound.Profile.Base,
+		rawProfileClient,
+		rootLogger.With(config.LogFieldComponent, config.LogComponentOutboundProfile),
+	)
 
 	profileClient := outbound.NewRetryingProfileClient(
 		cfg.Outbound.Retry.MaxAttempts,
@@ -150,6 +162,7 @@ func run() error {
 	)
 
 	if cfg.GRPC.Enable {
+		grpcLogger := rootLogger.With(config.LogFieldComponent, config.LogComponentGRPCServer)
 		grpcRuntime, err = grpcserver.NewRuntimeWithConfig(grpcserver.Config{
 			Addr:              cfg.GRPC.Addr,
 			ReflectionEnabled: cfg.GRPC.ReflectionEnable,
@@ -162,7 +175,7 @@ func run() error {
 				KeyFile:      cfg.GRPC.TLS.KeyFile,
 				ClientCAFile: cfg.GRPC.TLS.ClientCAFile,
 			},
-		}, jobService, logger)
+		}, jobService, grpcLogger)
 		if err != nil {
 			return err
 		}
@@ -187,7 +200,7 @@ func run() error {
 		defer func() {
 			if grpcConn != nil {
 				if err := grpcConn.Close(); err != nil {
-					logger.Warn("grpc client connection close", "err", err)
+					logger.Warn("grpc client connection close", config.LogFieldError, err)
 				}
 			}
 		}()
@@ -266,11 +279,20 @@ func run() error {
 	// 7) Recover (inner)
 	// 8) RootRouter (ServeMux: API + health + debug)
 	handler := rootRouter
-	handler = middleware.Recover(handler) // inner: чтобы Logger/Metrics увидели 500 при panic в Router
-	handler = middleware.Logger(handler)
+	handler = middleware.RecoverWithLogger(
+		handler,
+		rootLogger.With(config.LogFieldComponent, config.LogComponentHTTPRecover),
+	) // inner: чтобы Logger/Metrics увидели 500 при panic в Router
+	handler = middleware.LoggerWithLogger(
+		handler,
+		rootLogger.With(config.LogFieldComponent, config.LogComponentHTTPAccess),
+	)
 	handler = middleware.Metrics(m)(handler)
 	handler = proxyAPI.TrustProxy(handler)
-	handler = middleware.Recover(handler) // outer: ловит panic в Logger/Metrics
+	handler = middleware.RecoverWithLogger(
+		handler,
+		rootLogger.With(config.LogFieldComponent, config.LogComponentHTTPRecover),
+	) // outer: ловит panic в Logger/Metrics
 	handler = requestid.RequestIDMiddleware(handler)
 	handler = proxyAPI.SanitizeRequestIDHeader(handler)
 

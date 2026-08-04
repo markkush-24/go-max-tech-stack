@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"pet-study/internal/config"
 	"pet-study/internal/metrics"
 	"pet-study/internal/middleware"
 	"strings"
@@ -162,11 +163,8 @@ func TestMetrics_SkipsDebugPaths(t *testing.T) {
 
 func TestMetricsAndLogger_RecordFirstWireStatus(t *testing.T) {
 	var logBuf bytes.Buffer
-	prev := slog.Default()
-	slog.SetDefault(slog.New(slog.NewTextHandler(&logBuf, &slog.HandlerOptions{})))
-	t.Cleanup(func() {
-		slog.SetDefault(prev)
-	})
+	logger := slog.New(slog.NewTextHandler(&logBuf, &slog.HandlerOptions{})).
+		With(config.LogFieldComponent, config.LogComponentHTTPAccess)
 
 	m := metrics.DefaultHTTP()
 	pat := fmt.Sprintf("/test-first-status/%d", time.Now().UnixNano())
@@ -178,7 +176,7 @@ func TestMetricsAndLogger_RecordFirstWireStatus(t *testing.T) {
 		_, _ = w.Write([]byte("created"))
 	})
 
-	h := middleware.Metrics(m)(middleware.Logger(mux))
+	h := middleware.Metrics(m)(middleware.LoggerWithLogger(mux, logger))
 
 	reqKeyCreated := "GET|" + pat + "|201"
 	reqKeyInternalError := "GET|" + pat + "|500"
@@ -199,6 +197,21 @@ func TestMetricsAndLogger_RecordFirstWireStatus(t *testing.T) {
 	}
 	if strings.Contains(logText, "status=500") {
 		t.Fatalf("logs=%q must not record overwritten status 500", logText)
+	}
+	if !strings.Contains(logText, "route="+pat) {
+		t.Fatalf("logs=%q must record canonical route field", logText)
+	}
+	if strings.Contains(logText, "pattern=") {
+		t.Fatalf("logs=%q must not record legacy pattern field", logText)
+	}
+	if !strings.Contains(logText, "duration_ms=") {
+		t.Fatalf("logs=%q must record duration_ms", logText)
+	}
+	if strings.Contains(logText, "latency_ms=") {
+		t.Fatalf("logs=%q must not record legacy latency_ms field", logText)
+	}
+	if got := strings.Count(logText, "component="); got != 1 {
+		t.Fatalf("logs=%q component field count=%d want 1", logText, got)
 	}
 
 	afterCreated := expvarMapGetInt(t, "http_requests_total", reqKeyCreated)

@@ -1,7 +1,9 @@
 package config
 
 import (
+	"bytes"
 	"crypto/tls"
+	"encoding/json"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -81,6 +83,9 @@ var validConfigEnv = []envKV{
 
 var optionalConfigEnv = []envKV{
 	{"APP_ENV", "development"},
+	{"LOG_LEVEL", "debug"},
+	{"LOG_FORMAT", "json"},
+	{"LOG_ADD_SOURCE", "true"},
 	{"HTTP_TLS_MIN_VERSION", "1.2"},
 	{"GRPC_REFLECTION_ENABLE", "false"},
 	{"GRPC_TLS_ENABLE", "false"},
@@ -103,6 +108,9 @@ func TestLoad_Defaults(t *testing.T) {
 
 	if cfg.Runtime.Environment != EnvironmentDevelopment {
 		t.Fatalf("Runtime.Environment=%q want=%q", cfg.Runtime.Environment, EnvironmentDevelopment)
+	}
+	if cfg.Logging.Level != LogLevelInfo || cfg.Logging.Format != LogFormatText || cfg.Logging.AddSource {
+		t.Fatalf("Logging=%+v", cfg.Logging)
 	}
 	if cfg.HTTP.Addr != ":8080" {
 		t.Fatalf("HTTP.Addr=%q want=:8080", cfg.HTTP.Addr)
@@ -262,6 +270,93 @@ func TestLoad_ExplicitValidEnvironment(t *testing.T) {
 	}
 }
 
+func TestLoad_LoggingConfig(t *testing.T) {
+	clearConfigEnv(t)
+	t.Setenv("LOG_LEVEL", "DEBUG")
+	t.Setenv("LOG_FORMAT", "JSON")
+	t.Setenv("LOG_ADD_SOURCE", "true")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if cfg.Logging.Level != LogLevelDebug {
+		t.Fatalf("Logging.Level=%q want=%q", cfg.Logging.Level, LogLevelDebug)
+	}
+	if cfg.Logging.Format != LogFormatJSON {
+		t.Fatalf("Logging.Format=%q want=%q", cfg.Logging.Format, LogFormatJSON)
+	}
+	if !cfg.Logging.AddSource {
+		t.Fatalf("Logging.AddSource=false want true")
+	}
+}
+
+func TestNewLogger_UsesConfiguredJSONLevelAndSource(t *testing.T) {
+	var buf bytes.Buffer
+
+	logger, err := NewLogger(&buf, LoggingConfig{
+		Level:     LogLevelWarn,
+		Format:    LogFormatJSON,
+		AddSource: true,
+	})
+	if err != nil {
+		t.Fatalf("NewLogger() error = %v", err)
+	}
+
+	logger.Info("ignored")
+	logger.Warn("kept", LogFieldComponent, "test")
+
+	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	if len(lines) != 1 {
+		t.Fatalf("log lines=%q want one WARN line", buf.String())
+	}
+
+	var record map[string]any
+	if err := json.Unmarshal([]byte(lines[0]), &record); err != nil {
+		t.Fatalf("unmarshal log line: %v line=%q", err, lines[0])
+	}
+
+	if record["level"] != "WARN" {
+		t.Fatalf("level=%v want WARN", record["level"])
+	}
+	if record["msg"] != "kept" {
+		t.Fatalf("msg=%v want kept", record["msg"])
+	}
+	if record[LogFieldComponent] != "test" {
+		t.Fatalf("component=%v want test", record[LogFieldComponent])
+	}
+	if _, ok := record["source"]; !ok {
+		t.Fatalf("source missing from log record: %#v", record)
+	}
+}
+
+func TestNewLogger_UsesTextFormatWithoutSource(t *testing.T) {
+	var buf bytes.Buffer
+
+	logger, err := NewLogger(&buf, LoggingConfig{
+		Level:     LogLevelInfo,
+		Format:    LogFormatText,
+		AddSource: false,
+	})
+	if err != nil {
+		t.Fatalf("NewLogger() error = %v", err)
+	}
+
+	logger.Info("hello", LogFieldComponent, "test")
+
+	text := buf.String()
+	if !strings.Contains(text, "level=INFO") || !strings.Contains(text, "msg=hello") {
+		t.Fatalf("text log=%q missing level/msg", text)
+	}
+	if !strings.Contains(text, "component=test") {
+		t.Fatalf("text log=%q missing component", text)
+	}
+	if strings.Contains(text, "source=") {
+		t.Fatalf("text log=%q must not include source", text)
+	}
+}
+
 func TestLoad_OptionalTransports(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -367,6 +462,26 @@ func TestLoad_InvalidEnvironment(t *testing.T) {
 		env     map[string]string
 		wantErr string
 	}{
+		{
+			name:    "invalid log level",
+			env:     map[string]string{"LOG_LEVEL": "verbose"},
+			wantErr: "LOG_LEVEL",
+		},
+		{
+			name:    "empty log level",
+			env:     map[string]string{"LOG_LEVEL": ""},
+			wantErr: "LOG_LEVEL",
+		},
+		{
+			name:    "invalid log format",
+			env:     map[string]string{"LOG_FORMAT": "xml"},
+			wantErr: "LOG_FORMAT",
+		},
+		{
+			name:    "invalid log source bool",
+			env:     map[string]string{"LOG_ADD_SOURCE": "maybe"},
+			wantErr: "LOG_ADD_SOURCE",
+		},
 		{
 			name:    "invalid bool",
 			env:     map[string]string{"HTTP_DEBUG": "not-bool"},

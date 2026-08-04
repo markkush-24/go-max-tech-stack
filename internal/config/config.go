@@ -166,6 +166,7 @@ type SecurityHeadersConfig struct {
 
 type Config struct {
 	Runtime         RuntimeConfig
+	Logging         LoggingConfig
 	HTTP            HTTPConfig
 	DB              DBConfig
 	Pool            WorkerPoolConfig
@@ -184,6 +185,11 @@ func defaultConfig() Config {
 	return Config{
 		Runtime: RuntimeConfig{
 			Environment: EnvironmentDevelopment,
+		},
+		Logging: LoggingConfig{
+			Level:     LogLevelInfo,
+			Format:    LogFormatText,
+			AddSource: false,
 		},
 		HTTP: HTTPConfig{
 			Addr:              ":8080",
@@ -310,6 +316,19 @@ func Load() (Config, error) {
 	}
 	cfg.Runtime.Environment = strings.ToLower(strings.TrimSpace(cfg.Runtime.Environment))
 	if err := validateEnvironment(cfg.Runtime.Environment); err != nil {
+		return Config{}, err
+	}
+
+	cfg.Logging.Level, err = lookupLogLevel("LOG_LEVEL", cfg.Logging.Level)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.Logging.Format, err = lookupLogFormat("LOG_FORMAT", cfg.Logging.Format)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.Logging.AddSource, err = lookupBool("LOG_ADD_SOURCE", cfg.Logging.AddSource)
+	if err != nil {
 		return Config{}, err
 	}
 

@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"pet-study/internal/config"
 	"pet-study/internal/middleware"
 	"pet-study/internal/requestid"
 	"strings"
@@ -15,16 +16,12 @@ import (
 func TestRecover_LogsStackTrace_AndReturnsGenericProblem(t *testing.T) {
 	var logBuf bytes.Buffer
 
-	prev := slog.Default()
 	logger := slog.New(slog.NewTextHandler(&logBuf, &slog.HandlerOptions{}))
-	slog.SetDefault(logger)
-	t.Cleanup(func() {
-		slog.SetDefault(prev)
-	})
+	logger = logger.With(config.LogFieldComponent, config.LogComponentHTTPRecover)
 
-	h := middleware.Recover(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	h := middleware.RecoverWithLogger(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		panic("boom")
-	}))
+	}), logger)
 
 	req := httptest.NewRequest(http.MethodGet, "http://example.com/panic", nil)
 	req = req.WithContext(requestid.WithRequestID(req.Context(), "rid-123"))
@@ -64,5 +61,8 @@ func TestRecover_LogsStackTrace_AndReturnsGenericProblem(t *testing.T) {
 	}
 	if !strings.Contains(logText, "goroutine") {
 		t.Fatalf("logs=%q must contain stack trace content", logText)
+	}
+	if got := strings.Count(logText, "component="); got != 1 {
+		t.Fatalf("logs=%q component field count=%d want 1", logText, got)
 	}
 }

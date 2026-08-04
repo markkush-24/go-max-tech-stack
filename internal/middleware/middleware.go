@@ -3,10 +3,12 @@ package middleware
 import (
 	"log/slog"
 	"net/http"
+	"pet-study/internal/config"
 	"pet-study/internal/httputils"
 	"pet-study/internal/requestid"
 	"pet-study/internal/security"
 	"runtime/debug"
+	"strings"
 	"time"
 )
 
@@ -36,8 +38,11 @@ func (w *statusRecorder) Write(p []byte) (int, error) {
 }
 
 func Logger(next http.Handler) http.Handler {
+	return LoggerWithLogger(next, slog.Default().With(config.LogFieldComponent, config.LogComponentHTTPAccess))
+}
+
+func LoggerWithLogger(next http.Handler, logger *slog.Logger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		logger := slog.Default().With("component", "http_access")
 		start := time.Now()
 
 		sr, ok := w.(*statusRecorder)
@@ -63,29 +68,57 @@ func Logger(next http.Handler) http.Handler {
 
 		logger.Info(
 			"http request completed",
-			"method", r.Method,
+			config.LogFieldMethod, r.Method,
 			"path", r.URL.Path,
-			"pattern", r.Pattern,
-			"status", sr.Status(),
+			config.LogFieldRoute, canonicalHTTPRoute(r.Pattern),
+			config.LogFieldStatus, sr.Status(),
 			"bytes", sr.Bytes(),
-			"latency_ms", time.Since(start).Milliseconds(),
-			"request_id", rid,
+			config.LogFieldDurationMS, time.Since(start).Milliseconds(),
+			config.LogFieldRequestID, rid,
 			"client_ip", clientIP,
 			"scheme", scheme,
 		)
 	})
 }
 
+func canonicalHTTPRoute(pattern string) string {
+	method, route, ok := strings.Cut(pattern, " ")
+	if ok && isHTTPMethod(method) && route != "" {
+		return route
+	}
+	return pattern
+}
+
+func isHTTPMethod(method string) bool {
+	switch method {
+	case http.MethodConnect,
+		http.MethodDelete,
+		http.MethodGet,
+		http.MethodHead,
+		http.MethodOptions,
+		http.MethodPatch,
+		http.MethodPost,
+		http.MethodPut,
+		http.MethodTrace:
+		return true
+	default:
+		return false
+	}
+}
+
 func Recover(next http.Handler) http.Handler {
+	return RecoverWithLogger(next, slog.Default().With(config.LogFieldComponent, config.LogComponentHTTPRecover))
+}
+
+func RecoverWithLogger(next http.Handler, logger *slog.Logger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		logger := slog.Default().With("component", "http_recover")
 		defer func() {
 			if err := recover(); err != nil {
 				rid, _ := requestid.RequestID(r.Context())
 				logger.Error(
 					"panic recovered",
-					"request_id", rid,
-					"err", err,
+					config.LogFieldRequestID, rid,
+					config.LogFieldError, err,
 					"stack", string(debug.Stack()),
 				)
 				_ = httputils.WriteProblem(w, r, httputils.Problem{
