@@ -716,3 +716,38 @@ Notes:
 Unlocked tasks:
 - none
 ```
+
+```text
+Task: TASK-025
+Accepted: 2026-08-04
+Commit: 5f98c7b4
+Reviewer: Mark
+Verification:
+- go get go.opentelemetry.io/otel@v1.43.0 go.opentelemetry.io/otel/sdk@v1.43.0 go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc@v1.43.0 go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc@v1.43.0: PASS
+- go mod tidy: PASS
+- gofmt -w cmd/api/main.go internal/config/config.go internal/config/config_test.go internal/telemetry/runtime.go internal/telemetry/runtime_test.go: PASS
+- go test ./internal/config/...: PASS
+- go test ./internal/telemetry/...: FAIL; first run exposed an invalid assumption that the current OTel SDK returns invalid endpoint errors during exporter creation
+- go test ./internal/telemetry/...: PASS
+- go test ./internal/telemetry/... ./internal/config/...: PASS
+- go test ./...: PASS
+- gofmt -l cmd/api/main.go internal/config/config.go internal/config/config_test.go internal/telemetry/runtime.go internal/telemetry/runtime_test.go: PASS
+- git diff --check: PASS
+- git diff --name-only -- docs/implementation docs/audit: PASS; no forbidden docs changed
+Notes:
+- Added telemetry config with deterministic disabled default.
+- Added one composition-root-owned internal telemetry runtime with shared Resource, TracerProvider, MeterProvider and W3C TraceContext propagator.
+- Wired telemetry bootstrap in cmd/api/main.go and added pinned OpenTelemetry SDK/OTLP gRPC exporter dependencies.
+- Remaining limitations/risks: TASK-026 still owns fail-open policy, ForceFlush, shutdown lifecycle verification and exporter failure surfacing.
+- Remaining limitations/risks: TASK-028 through TASK-031 still own log correlation and HTTP/outbound/gRPC instrumentation.
+- Remaining limitations/risks: Collector/Tempo/Prometheus pipeline configuration is not implemented in TASK-025.
+- Remaining limitations/risks: README/env documentation for new TELEMETRY_* keys was not updated because docs outside allowed scope were forbidden.
+Unlocked tasks:
+- TASK-026
+- TASK-027
+- TASK-028
+- TASK-029
+- TASK-030
+- TASK-031
+- TASK-032
+```

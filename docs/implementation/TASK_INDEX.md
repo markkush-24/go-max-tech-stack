@@ -59,14 +59,14 @@ Introduce stable logging, tracing and metric ownership without changing business
 |---|---|---|---|---|
 | [TASK-023](tasks/TASK-023-logging-schema-config.md) | P1 | TASK-016 | DONE | Normalize logger ownership, component attribution and field schema |
 | [TASK-024](tasks/TASK-024-logging-policy-events.md) | P1 | TASK-023 | DONE | Add redaction policy and coherent security, retry, SSE and shutdown events |
-| [TASK-025](tasks/TASK-025-telemetry-bootstrap.md) | P1 | TASK-016 | READY | Create telemetry configuration, Resource and bootstrap runtime |
-| [TASK-026](tasks/TASK-026-telemetry-lifecycle.md) | P1 | TASK-025, TASK-017 | BLOCKED | Integrate telemetry fail-open, ForceFlush and Shutdown lifecycle |
-| [TASK-027](tasks/TASK-027-async-propagation-envelope.md) | P1 | TASK-013, TASK-011, TASK-025 | BLOCKED | Add broker-compatible async propagation envelope and per-job context |
-| [TASK-028](tasks/TASK-028-log-trace-correlation.md) | P1 | TASK-023, TASK-025 | BLOCKED | Inject request ID, trace ID and span ID into contextual slog events |
-| [TASK-029](tasks/TASK-029-http-tracing.md) | P1 | TASK-025, TASK-008 | BLOCKED | Instrument inbound HTTP while preserving ServeMux route identity |
-| [TASK-030](tasks/TASK-030-outbound-tracing.md) | P1 | TASK-025 | BLOCKED | Instrument outbound HTTP and model logical retries |
-| [TASK-031](tasks/TASK-031-grpc-tracing.md) | P1 | TASK-025, TASK-021 | BLOCKED | Instrument gRPC client/server and stream propagation |
-| [TASK-032](tasks/TASK-032-metrics-registry.md) | P1 | TASK-025, TASK-008 | BLOCKED | Replace process-global metric ownership with a DI-owned registry |
+| [TASK-025](tasks/TASK-025-telemetry-bootstrap.md) | P1 | TASK-016 | DONE | Create telemetry configuration, Resource and bootstrap runtime |
+| [TASK-026](tasks/TASK-026-telemetry-lifecycle.md) | P1 | TASK-025, TASK-017 | READY | Integrate telemetry fail-open, ForceFlush and Shutdown lifecycle |
+| [TASK-027](tasks/TASK-027-async-propagation-envelope.md) | P1 | TASK-013, TASK-011, TASK-025 | READY | Add broker-compatible async propagation envelope and per-job context |
+| [TASK-028](tasks/TASK-028-log-trace-correlation.md) | P1 | TASK-023, TASK-025 | READY | Inject request ID, trace ID and span ID into contextual slog events |
+| [TASK-029](tasks/TASK-029-http-tracing.md) | P1 | TASK-025, TASK-008 | READY | Instrument inbound HTTP while preserving ServeMux route identity |
+| [TASK-030](tasks/TASK-030-outbound-tracing.md) | P1 | TASK-025 | READY | Instrument outbound HTTP and model logical retries |
+| [TASK-031](tasks/TASK-031-grpc-tracing.md) | P1 | TASK-025, TASK-021 | READY | Instrument gRPC client/server and stream propagation |
+| [TASK-032](tasks/TASK-032-metrics-registry.md) | P1 | TASK-025, TASK-008 | READY | Replace process-global metric ownership with a DI-owned registry |
 | [TASK-033](tasks/TASK-033-metric-correctness.md) | P1 | TASK-032 | BLOCKED | Fix queue/auth/bulkhead instrument semantics |
 | [TASK-034](tasks/TASK-034-http-red-metrics.md) | P1 | TASK-032, TASK-008 | BLOCKED | Add HTTP RED metrics, histograms and service-class attributes |
 | [TASK-035](tasks/TASK-035-job-queue-metrics.md) | P1 | TASK-032, TASK-009 | BLOCKED | Add complete queue and Job lifecycle metrics |
