@@ -26,6 +26,11 @@ type RuntimeConfig struct {
 	Environment string
 }
 
+type TelemetryConfig struct {
+	Enabled         bool
+	ShutdownTimeout time.Duration
+}
+
 type HTTPConfig struct {
 	Addr              string
 	ReadHeaderTimeout time.Duration
@@ -167,6 +172,7 @@ type SecurityHeadersConfig struct {
 type Config struct {
 	Runtime         RuntimeConfig
 	Logging         LoggingConfig
+	Telemetry       TelemetryConfig
 	HTTP            HTTPConfig
 	DB              DBConfig
 	Pool            WorkerPoolConfig
@@ -190,6 +196,10 @@ func defaultConfig() Config {
 			Level:     LogLevelInfo,
 			Format:    LogFormatText,
 			AddSource: false,
+		},
+		Telemetry: TelemetryConfig{
+			Enabled:         false,
+			ShutdownTimeout: 5 * time.Second,
 		},
 		HTTP: HTTPConfig{
 			Addr:              ":8080",
@@ -328,6 +338,15 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	cfg.Logging.AddSource, err = lookupBool("LOG_ADD_SOURCE", cfg.Logging.AddSource)
+	if err != nil {
+		return Config{}, err
+	}
+
+	cfg.Telemetry.Enabled, err = lookupBool("TELEMETRY_ENABLED", cfg.Telemetry.Enabled)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.Telemetry.ShutdownTimeout, err = lookupDurationPositive("TELEMETRY_SHUTDOWN_TIMEOUT", cfg.Telemetry.ShutdownTimeout)
 	if err != nil {
 		return Config{}, err
 	}

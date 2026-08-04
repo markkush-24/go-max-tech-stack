@@ -86,6 +86,8 @@ var optionalConfigEnv = []envKV{
 	{"LOG_LEVEL", "debug"},
 	{"LOG_FORMAT", "json"},
 	{"LOG_ADD_SOURCE", "true"},
+	{"TELEMETRY_ENABLED", "true"},
+	{"TELEMETRY_SHUTDOWN_TIMEOUT", "6s"},
 	{"HTTP_TLS_MIN_VERSION", "1.2"},
 	{"GRPC_REFLECTION_ENABLE", "false"},
 	{"GRPC_TLS_ENABLE", "false"},
@@ -111,6 +113,9 @@ func TestLoad_Defaults(t *testing.T) {
 	}
 	if cfg.Logging.Level != LogLevelInfo || cfg.Logging.Format != LogFormatText || cfg.Logging.AddSource {
 		t.Fatalf("Logging=%+v", cfg.Logging)
+	}
+	if cfg.Telemetry.Enabled || cfg.Telemetry.ShutdownTimeout != 5*time.Second {
+		t.Fatalf("Telemetry=%+v", cfg.Telemetry)
 	}
 	if cfg.HTTP.Addr != ":8080" {
 		t.Fatalf("HTTP.Addr=%q want=:8080", cfg.HTTP.Addr)
@@ -289,6 +294,24 @@ func TestLoad_LoggingConfig(t *testing.T) {
 	}
 	if !cfg.Logging.AddSource {
 		t.Fatalf("Logging.AddSource=false want true")
+	}
+}
+
+func TestLoad_TelemetryConfig(t *testing.T) {
+	clearConfigEnv(t)
+	t.Setenv("TELEMETRY_ENABLED", "true")
+	t.Setenv("TELEMETRY_SHUTDOWN_TIMEOUT", "7s")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if !cfg.Telemetry.Enabled {
+		t.Fatalf("Telemetry.Enabled=false want true")
+	}
+	if cfg.Telemetry.ShutdownTimeout != 7*time.Second {
+		t.Fatalf("Telemetry.ShutdownTimeout=%s want=7s", cfg.Telemetry.ShutdownTimeout)
 	}
 }
 
@@ -481,6 +504,16 @@ func TestLoad_InvalidEnvironment(t *testing.T) {
 			name:    "invalid log source bool",
 			env:     map[string]string{"LOG_ADD_SOURCE": "maybe"},
 			wantErr: "LOG_ADD_SOURCE",
+		},
+		{
+			name:    "invalid telemetry enabled bool",
+			env:     map[string]string{"TELEMETRY_ENABLED": "sometimes"},
+			wantErr: "TELEMETRY_ENABLED",
+		},
+		{
+			name:    "zero telemetry shutdown timeout",
+			env:     map[string]string{"TELEMETRY_SHUTDOWN_TIMEOUT": "0s"},
+			wantErr: "TELEMETRY_SHUTDOWN_TIMEOUT",
 		},
 		{
 			name:    "invalid bool",

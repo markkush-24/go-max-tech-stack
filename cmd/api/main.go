@@ -25,11 +25,14 @@ import (
 	"pet-study/internal/store/jobrepo"
 	"pet-study/internal/store/userrepo"
 	"pet-study/internal/stream"
+	"pet-study/internal/telemetry"
 	"pet-study/internal/transport/grpcclient"
 	"pet-study/internal/transport/grpcserver"
 	"pet-study/internal/transport/pb"
 	"pet-study/internal/workerpool"
+	"runtime/debug"
 	"syscall"
+	"time"
 
 	"google.golang.org/grpc"
 )
@@ -63,6 +66,13 @@ func run(cfg config.Config, rootLogger *slog.Logger) error {
 	logger := rootLogger.With(config.LogFieldComponent, config.LogComponentMain)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	telemetryRuntime, err := telemetry.New(ctx, cfg.Telemetry, telemetryBuildInfo(cfg))
+	if err != nil {
+		return err
+	}
+	telemetryRuntime.InstallGlobals()
+	defer shutdownTelemetry(telemetryRuntime, cfg.Telemetry.ShutdownTimeout, logger)
 
 	var (
 		userRepository service.UserRepository
@@ -300,4 +310,30 @@ func run(cfg config.Config, rootLogger *slog.Logger) error {
 	logger.Info("application configured", "addr", cfg.HTTP.Addr, "debug", cfg.HTTP.Debug)
 
 	return server.Run(ctx)
+}
+
+func telemetryBuildInfo(cfg config.Config) telemetry.BuildInfo {
+	version := telemetry.DefaultServiceVersion
+	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
+		version = info.Main.Version
+	}
+
+	return telemetry.BuildInfo{
+		ServiceName:    telemetry.DefaultServiceName,
+		ServiceVersion: version,
+		Environment:    cfg.Runtime.Environment,
+	}
+}
+
+func shutdownTelemetry(rt *telemetry.Runtime, timeout time.Duration, logger *slog.Logger) {
+	if rt == nil {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	if err := rt.Shutdown(ctx); err != nil {
+		logger.Warn("telemetry shutdown", config.LogFieldError, err)
+	}
 }
