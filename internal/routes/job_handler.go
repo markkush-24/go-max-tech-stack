@@ -2,8 +2,11 @@ package routes
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
+	"pet-study/internal/config"
 	"pet-study/internal/entity"
 	"pet-study/internal/httputils"
 	"pet-study/internal/requestid"
@@ -23,6 +26,7 @@ type JobHandler struct {
 	heartbeat     time.Duration
 	writeTimeout  time.Duration
 	jobGRPCClient pb.JobsServiceClient
+	logger        *slog.Logger
 }
 
 func NewJobHandler(
@@ -32,12 +36,25 @@ func NewJobHandler(
 	writeTimeout time.Duration,
 	jobGRPCClient pb.JobsServiceClient,
 ) *JobHandler {
+	return NewJobHandlerWithLogger(jobService, eventHub, heartbeat, writeTimeout, jobGRPCClient, defaultSSELogger())
+}
+
+func NewJobHandlerWithLogger(
+	jobService *service.JobService,
+	eventHub *stream.Hub,
+	heartbeat time.Duration,
+	writeTimeout time.Duration,
+	jobGRPCClient pb.JobsServiceClient,
+	logger *slog.Logger,
+) *JobHandler {
 	return &JobHandler{
 		jobService:    jobService,
 		eventHub:      eventHub,
 		heartbeat:     heartbeat,
 		writeTimeout:  writeTimeout,
-		jobGRPCClient: jobGRPCClient}
+		jobGRPCClient: jobGRPCClient,
+		logger:        normalizeJobHandlerLogger(logger),
+	}
 }
 
 func (h *JobHandler) GetByID(w http.ResponseWriter, r *http.Request, id int) error {
@@ -132,12 +149,35 @@ func (h *JobHandler) Events(w http.ResponseWriter, r *http.Request, id int) erro
 	}
 	defer unsubscribe()
 
+	rid, _ := requestid.RequestID(r.Context())
+	start := time.Now()
+	closeReason := "completed"
+	writeFailures := 0
+	h.logger.Info(
+		"sse connection opened",
+		"event", "sse.connection.opened",
+		config.LogFieldRequestID, rid,
+		"job_id", int64(id),
+	)
+	defer func() {
+		h.logger.Info(
+			"sse connection closed",
+			"event", "sse.connection.closed",
+			config.LogFieldRequestID, rid,
+			"job_id", int64(id),
+			"reason", closeReason,
+			"write_failures", writeFailures,
+			config.LogFieldDurationMS, time.Since(start).Milliseconds(),
+		)
+	}()
+
 	ticker := time.NewTicker(h.heartbeat)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-r.Context().Done():
+			closeReason = sseCloseReason(r.Context().Err())
 			return nil
 		case <-ticker.C:
 			err := writeWithTimeout(func() error {
@@ -147,10 +187,14 @@ func (h *JobHandler) Events(w http.ResponseWriter, r *http.Request, id int) erro
 				return rc.Flush()
 			})
 			if err != nil {
+				writeFailures++
+				closeReason = "write_failed"
+				h.logSSEWriteFailure(r.Context(), rid, int64(id), "heartbeat", err)
 				return err
 			}
 		case event, subOk := <-subscription.C:
 			if !subOk {
+				closeReason = "subscription_closed"
 				return nil
 			}
 
@@ -164,10 +208,61 @@ func (h *JobHandler) Events(w http.ResponseWriter, r *http.Request, id int) erro
 				return rc.Flush()
 			})
 			if err != nil {
+				writeFailures++
+				closeReason = "write_failed"
+				h.logSSEWriteFailure(r.Context(), rid, int64(id), "event", err)
 				return err
 			}
 		}
 	}
+}
+
+func (h *JobHandler) logSSEWriteFailure(ctx context.Context, requestID string, jobID int64, phase string, err error) {
+	h.logger.Warn(
+		"sse write failed",
+		"event", "sse.write.failed",
+		config.LogFieldRequestID, requestID,
+		"job_id", jobID,
+		"phase", phase,
+		"error_kind", sseErrorKind(err),
+	)
+}
+
+func defaultSSELogger() *slog.Logger {
+	return slog.Default().With(config.LogFieldComponent, "sse")
+}
+
+func normalizeJobHandlerLogger(logger *slog.Logger) *slog.Logger {
+	if logger != nil {
+		return logger
+	}
+	return defaultSSELogger()
+}
+
+func sseCloseReason(err error) string {
+	switch {
+	case errors.Is(err, context.Canceled):
+		return "client_closed"
+	case errors.Is(err, context.DeadlineExceeded):
+		return "deadline_exceeded"
+	default:
+		return "context_done"
+	}
+}
+
+func sseErrorKind(err error) string {
+	switch {
+	case errors.Is(err, context.Canceled):
+		return "context_canceled"
+	case errors.Is(err, context.DeadlineExceeded):
+		return "deadline_exceeded"
+	}
+
+	var timeoutErr interface{ Timeout() bool }
+	if errors.As(err, &timeoutErr) && timeoutErr.Timeout() {
+		return "timeout"
+	}
+	return "write_error"
 }
 
 func mapPBJobStatus(s pb.JobStatus) string {

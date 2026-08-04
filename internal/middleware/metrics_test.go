@@ -201,6 +201,12 @@ func TestMetricsAndLogger_RecordFirstWireStatus(t *testing.T) {
 	if !strings.Contains(logText, "route="+pat) {
 		t.Fatalf("logs=%q must record canonical route field", logText)
 	}
+	if strings.Contains(logText, "path=") {
+		t.Fatalf("logs=%q must not record raw path field", logText)
+	}
+	if strings.Contains(logText, "client_ip=") {
+		t.Fatalf("logs=%q must not record client_ip in high-volume access logs", logText)
+	}
 	if strings.Contains(logText, "pattern=") {
 		t.Fatalf("logs=%q must not record legacy pattern field", logText)
 	}

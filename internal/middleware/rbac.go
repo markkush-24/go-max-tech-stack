@@ -4,6 +4,7 @@ import (
 	"errors"
 	"expvar"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"sync"
 
@@ -17,10 +18,15 @@ var (
 )
 
 type AuthorizeAPI struct {
-	rules map[string]security.RouteRule // key: r.Pattern
+	rules  map[string]security.RouteRule // key: r.Pattern
+	logger *slog.Logger
 }
 
 func NewAuthorizeAPI(policy []security.RouteRule) (*AuthorizeAPI, error) {
+	return NewAuthorizeAPIWithLogger(policy, defaultSecurityLogger())
+}
+
+func NewAuthorizeAPIWithLogger(policy []security.RouteRule, logger *slog.Logger) (*AuthorizeAPI, error) {
 	authzInitOnce.Do(func() {
 		forbiddenTotal = expvar.NewInt("authz_forbidden_total")
 	})
@@ -40,7 +46,10 @@ func NewAuthorizeAPI(policy []security.RouteRule) (*AuthorizeAPI, error) {
 		rules[rr.Pattern] = rr
 	}
 
-	return &AuthorizeAPI{rules: rules}, nil
+	return &AuthorizeAPI{
+		rules:  rules,
+		logger: normalizeLogger(logger, logComponentHTTPSecurity),
+	}, nil
 }
 
 func (a *AuthorizeAPI) Authorize(next httputils.AppHandler) httputils.AppHandler {
@@ -59,7 +68,9 @@ func (a *AuthorizeAPI) Authorize(next httputils.AppHandler) httputils.AppHandler
 		rule, ok := a.rules[pat]
 		if !ok {
 			forbiddenTotal.Add(1)
-			return security.NewForbidden(security.AuthZNoPolicyRule, nil)
+			err := security.NewForbidden(security.AuthZNoPolicyRule, nil)
+			a.logAuthZDenied(r, security.AuthZNoPolicyRule)
+			return err
 		}
 
 		switch rule.Access {
@@ -80,13 +91,25 @@ func (a *AuthorizeAPI) Authorize(next httputils.AppHandler) httputils.AppHandler
 			}
 			if p.Role != security.RoleAdmin {
 				forbiddenTotal.Add(1)
-				return security.NewForbidden(security.AuthZAdminRequired, nil)
+				err := security.NewForbidden(security.AuthZAdminRequired, nil)
+				a.logAuthZDenied(r, security.AuthZAdminRequired)
+				return err
 			}
 			return next(w, r)
 
 		default:
 			forbiddenTotal.Add(1)
-			return security.NewForbidden(security.AuthZUnknownAccess, nil)
+			err := security.NewForbidden(security.AuthZUnknownAccess, nil)
+			a.logAuthZDenied(r, security.AuthZUnknownAccess)
+			return err
 		}
 	}
+}
+
+func (a *AuthorizeAPI) logAuthZDenied(r *http.Request, kind security.AuthZErrorKind) {
+	attrs := append(
+		requestLogAttrs(r, http.StatusForbidden),
+		slog.String(logFieldAuthZKind, string(kind)),
+	)
+	logSecurityDecision(r.Context(), a.logger, "security.authz.denied", attrs)
 }

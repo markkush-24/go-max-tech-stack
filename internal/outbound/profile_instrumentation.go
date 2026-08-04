@@ -2,7 +2,6 @@ package outbound
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -40,13 +39,8 @@ func (c *InstrumentedProfileClient) FetchProfile(ctx context.Context, userID int
 	p, err := c.next.FetchProfile(ctx, userID, requestID)
 	d := time.Since(start)
 
-	status := 200
+	status := profileErrorStatus(err)
 	if err != nil {
-		status = 0
-		var pe *profile.Error
-		if errors.As(err, &pe) && pe.Status != 0 {
-			status = pe.Status
-		}
 		c.m.IncError(profile.KindLabel(err))
 	}
 	c.m.Observe(c.host, metricsRoute, status, d)
@@ -55,23 +49,25 @@ func (c *InstrumentedProfileClient) FetchProfile(ctx context.Context, userID int
 		if err != nil {
 			c.l.Warn(
 				"outbound request failed",
+				logFieldEvent, "profile.request.failed",
+				logFieldOperation, logOperationProfileFetch,
 				config.LogFieldRequestID, requestID,
 				"host", c.host,
 				config.LogFieldMethod, method,
 				config.LogFieldRoute, route,
-				"user_id", userID,
 				config.LogFieldStatus, status,
 				config.LogFieldDurationMS, d.Milliseconds(),
-				config.LogFieldError, err,
+				logFieldErrorKind, profileErrorKind(err),
 			)
 		} else {
 			c.l.Info(
 				"outbound request completed",
+				logFieldEvent, "profile.request.completed",
+				logFieldOperation, logOperationProfileFetch,
 				config.LogFieldRequestID, requestID,
 				"host", c.host,
 				config.LogFieldMethod, method,
 				config.LogFieldRoute, route,
-				"user_id", userID,
 				config.LogFieldStatus, status,
 				config.LogFieldDurationMS, d.Milliseconds(),
 			)

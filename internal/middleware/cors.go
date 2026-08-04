@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"expvar"
+	"log/slog"
 	"net/http"
 	"pet-study/internal/config"
 	"pet-study/internal/httputils"
@@ -25,9 +26,14 @@ type CORSAPI struct {
 	allowedHeadersLo map[string]struct{} // lower
 	allowCredentials bool
 	maxAgeSeconds    int
+	logger           *slog.Logger
 }
 
 func NewCORS(cfg config.CORSConfig) *CORSAPI {
+	return NewCORSWithLogger(cfg, defaultSecurityLogger())
+}
+
+func NewCORSWithLogger(cfg config.CORSConfig, logger *slog.Logger) *CORSAPI {
 	corsInitOnce.Do(func() {
 		corsPreflightTotal = expvar.NewInt("cors_preflight_total")
 		corsDeniedTotal = expvar.NewInt("cors_denied_total")
@@ -41,6 +47,7 @@ func NewCORS(cfg config.CORSConfig) *CORSAPI {
 		allowedHeadersLo: map[string]struct{}{},
 		allowCredentials: cfg.AllowCredentials,
 		maxAgeSeconds:    int(cfg.MaxAge.Seconds()),
+		logger:           normalizeLogger(logger, logComponentHTTPSecurity),
 	}
 
 	// origins
@@ -86,6 +93,7 @@ func (c *CORSAPI) CORS(next http.Handler) http.Handler {
 
 		if !c.isOriginAllowed(origin) {
 			corsDeniedTotal.Add(1)
+			c.logCORSDenied(r, "origin")
 			_ = httputils.WriteProblem(w, r, httputils.Problem{
 				Status: http.StatusForbidden,
 				Detail: "cors origin denied",
@@ -104,6 +112,7 @@ func (c *CORSAPI) CORS(next http.Handler) http.Handler {
 		if c.allowCredentials && allowOrigin == "*" {
 			// в этом режиме браузер всё равно откажет, лучше явно deny
 			corsDeniedTotal.Add(1)
+			c.logCORSDenied(r, "credentials_wildcard")
 			_ = httputils.WriteProblem(w, r, httputils.Problem{
 				Status: http.StatusForbidden,
 				Detail: "cors credentials with wildcard origin is not allowed",
@@ -121,6 +130,7 @@ func (c *CORSAPI) CORS(next http.Handler) http.Handler {
 			reqMethod := strings.ToUpper(strings.TrimSpace(r.Header.Get("Access-Control-Request-Method")))
 			if !c.isMethodAllowed(reqMethod) {
 				corsDeniedTotal.Add(1)
+				c.logCORSDenied(r, "method")
 				_ = httputils.WriteProblem(w, r, httputils.Problem{
 					Status: http.StatusForbidden,
 					Detail: "cors method denied",
@@ -130,6 +140,7 @@ func (c *CORSAPI) CORS(next http.Handler) http.Handler {
 
 			if !c.areRequestHeadersAllowed(r.Header.Get("Access-Control-Request-Headers")) {
 				corsDeniedTotal.Add(1)
+				c.logCORSDenied(r, "headers")
 				_ = httputils.WriteProblem(w, r, httputils.Problem{
 					Status: http.StatusForbidden,
 					Detail: "cors headers denied",
@@ -187,4 +198,12 @@ func (c *CORSAPI) areRequestHeadersAllowed(acrh string) bool {
 		}
 	}
 	return true
+}
+
+func (c *CORSAPI) logCORSDenied(r *http.Request, reason string) {
+	attrs := append(
+		requestLogAttrs(r, http.StatusForbidden),
+		slog.String(logFieldCORSDenial, reason),
+	)
+	logSecurityDecision(r.Context(), c.logger, "security.cors.denied", attrs)
 }

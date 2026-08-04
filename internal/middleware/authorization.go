@@ -3,6 +3,7 @@ package middleware
 import (
 	"errors"
 	"expvar"
+	"log/slog"
 	"net/http"
 	"pet-study/internal/httputils"
 	"pet-study/internal/security"
@@ -17,9 +18,14 @@ var (
 
 type AuthAPI struct {
 	verifier security.Verifier
+	logger   *slog.Logger
 }
 
 func NewAuthAPI(verifier security.Verifier) (*AuthAPI, error) {
+	return NewAuthAPIWithLogger(verifier, defaultSecurityLogger())
+}
+
+func NewAuthAPIWithLogger(verifier security.Verifier, logger *slog.Logger) (*AuthAPI, error) {
 	authnInitOnce.Do(func() {
 		authnFailures = expvar.NewMap("authn_failures_total")
 	})
@@ -27,7 +33,10 @@ func NewAuthAPI(verifier security.Verifier) (*AuthAPI, error) {
 	if verifier == nil {
 		return nil, errors.New("auth api: verifier is nil")
 	}
-	return &AuthAPI{verifier: verifier}, nil
+	return &AuthAPI{
+		verifier: verifier,
+		logger:   normalizeLogger(logger, logComponentHTTPSecurity),
+	}, nil
 }
 
 func (a *AuthAPI) Authenticate(next httputils.AppHandler) httputils.AppHandler {
@@ -38,22 +47,18 @@ func (a *AuthAPI) Authenticate(next httputils.AppHandler) httputils.AppHandler {
 
 		token, err := parseBearerToken(r.Header.Get("Authorization"))
 		if err != nil {
-			if k, ok := security.AuthNKind(err); ok {
-				incAuthN(k)
-			} else {
-				incAuthN("other")
-			}
+			k := authNKindOrOther(err)
+			incAuthN(k)
+			a.logAuthNDenied(r, k)
 			return err
 		}
 
 		p, err := a.verifier.Verify(token)
 		if err != nil {
 			uerr := security.UnauthorizedFromVerifyErr(err)
-			if k, ok := security.AuthNKind(uerr); ok {
-				incAuthN(k)
-			} else {
-				incAuthN("other")
-			}
+			k := authNKindOrOther(uerr)
+			incAuthN(k)
+			a.logAuthNDenied(r, k)
 			return uerr
 		}
 
@@ -78,6 +83,21 @@ func parseBearerToken(hdr string) (string, error) {
 		return "", security.NewUnauthorized(security.AuthNInvalid, nil)
 	}
 	return token, nil
+}
+
+func (a *AuthAPI) logAuthNDenied(r *http.Request, kind security.AuthNErrorKind) {
+	attrs := append(
+		requestLogAttrs(r, http.StatusUnauthorized),
+		slog.String(logFieldAuthNKind, string(kind)),
+	)
+	logSecurityDecision(r.Context(), a.logger, "security.authn.denied", attrs)
+}
+
+func authNKindOrOther(err error) security.AuthNErrorKind {
+	if k, ok := security.AuthNKind(err); ok {
+		return k
+	}
+	return "other"
 }
 
 func incAuthN(kind security.AuthNErrorKind) {

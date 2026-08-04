@@ -42,6 +42,8 @@ func Logger(next http.Handler) http.Handler {
 }
 
 func LoggerWithLogger(next http.Handler, logger *slog.Logger) http.Handler {
+	logger = normalizeLogger(logger, config.LogComponentHTTPAccess)
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 
@@ -55,28 +57,30 @@ func LoggerWithLogger(next http.Handler, logger *slog.Logger) http.Handler {
 
 		rid, _ := requestid.RequestID(r.Context())
 
-		clientIP := "-"
 		scheme := "-"
 		if ri, ok := security.RequestInfoFromContext(r.Context()); ok {
-			if ri.ClientIP != "" {
-				clientIP = ri.ClientIP
-			}
 			if ri.Scheme != "" {
 				scheme = ri.Scheme
 			}
 		}
 
-		logger.Info(
+		route := canonicalHTTPRoute(r.Pattern)
+		if route == "" {
+			route = "unmatched"
+		}
+
+		logger.LogAttrs(
+			r.Context(),
+			accessLogLevel(sr.Status(), route),
 			"http request completed",
-			config.LogFieldMethod, r.Method,
-			"path", r.URL.Path,
-			config.LogFieldRoute, canonicalHTTPRoute(r.Pattern),
-			config.LogFieldStatus, sr.Status(),
-			"bytes", sr.Bytes(),
-			config.LogFieldDurationMS, time.Since(start).Milliseconds(),
-			config.LogFieldRequestID, rid,
-			"client_ip", clientIP,
-			"scheme", scheme,
+			slog.String(logFieldEvent, "http.request.completed"),
+			slog.String(config.LogFieldMethod, r.Method),
+			slog.String(config.LogFieldRoute, route),
+			slog.Int(config.LogFieldStatus, sr.Status()),
+			slog.Int("bytes", sr.Bytes()),
+			slog.Int64(config.LogFieldDurationMS, time.Since(start).Milliseconds()),
+			slog.String(config.LogFieldRequestID, rid),
+			slog.String("scheme", scheme),
 		)
 	})
 }
@@ -106,19 +110,39 @@ func isHTTPMethod(method string) bool {
 	}
 }
 
+func accessLogLevel(status int, route string) slog.Level {
+	if status >= http.StatusBadRequest {
+		return slog.LevelInfo
+	}
+	if isNoisyAccessRoute(route) {
+		return slog.LevelDebug
+	}
+	return slog.LevelInfo
+}
+
+func isNoisyAccessRoute(route string) bool {
+	return route == "/livez" ||
+		route == "/readyz" ||
+		strings.HasPrefix(route, "/debug/") ||
+		strings.HasSuffix(route, "/events")
+}
+
 func Recover(next http.Handler) http.Handler {
 	return RecoverWithLogger(next, slog.Default().With(config.LogFieldComponent, config.LogComponentHTTPRecover))
 }
 
 func RecoverWithLogger(next http.Handler, logger *slog.Logger) http.Handler {
+	logger = normalizeLogger(logger, config.LogComponentHTTPRecover)
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			if err := recover(); err != nil {
 				rid, _ := requestid.RequestID(r.Context())
 				logger.Error(
 					"panic recovered",
+					logFieldEvent, "http.panic.recovered",
 					config.LogFieldRequestID, rid,
-					config.LogFieldError, err,
+					logFieldErrorKind, "panic",
 					"stack", string(debug.Stack()),
 				)
 				_ = httputils.WriteProblem(w, r, httputils.Problem{

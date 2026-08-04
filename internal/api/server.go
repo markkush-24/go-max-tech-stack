@@ -14,6 +14,7 @@ import (
 	"pet-study/internal/stream"
 	"pet-study/internal/workerpool"
 	"sync"
+	"time"
 )
 
 type grpcRuntime interface {
@@ -32,6 +33,13 @@ const (
 	shutdownOutcomeForced   shutdownOutcome = "forced"
 	shutdownOutcomeTimedOut shutdownOutcome = "timed_out"
 	shutdownOutcomeFailed   shutdownOutcome = "failed"
+)
+
+const (
+	logComponentAPIServer = "api_server"
+	logFieldEvent         = "event"
+	logFieldTrigger       = "trigger"
+	logFieldOutcome       = "outcome"
 )
 
 type componentShutdownError struct {
@@ -84,7 +92,7 @@ func NewAPIServer(
 }
 
 func (s *APIServer) Run(ctx context.Context) error {
-	logger := slog.Default().With("component", "api_server")
+	logger := slog.Default().With(config.LogFieldComponent, logComponentAPIServer)
 	srv := s.newHTTPServer(s.config.HTTP.Addr, nil)
 
 	ln, err := s.listen("tcp", s.config.HTTP.Addr)
@@ -179,20 +187,33 @@ func (s *APIServer) Run(ctx context.Context) error {
 	logger.Info("readiness changed", "ready", true)
 
 	var runErr error
+	shutdownTrigger := "context"
 	select {
 	case <-ctx.Done():
-		logger.Info("shutdown started")
+		shutdownTrigger = "context"
 	case err := <-errCh:
-		logger.Error("server error", "server", err.Name, "err", err.Err)
+		shutdownTrigger = err.Name + "_server_error"
+		logger.Error("server error", "server", err.Name, config.LogFieldError, err.Err)
 		runErr = fmt.Errorf("%s server failed: %w", err.Name, err.Err)
 	case <-grpcDone:
 		if err := s.grpcRuntime.Err(); err != nil {
-			logger.Error("server error", "server", "grpc", "err", err)
+			shutdownTrigger = "grpc_server_error"
+			logger.Error("server error", "server", "grpc", config.LogFieldError, err)
 			runErr = fmt.Errorf("grpc server failed: %w", err)
+		} else {
+			shutdownTrigger = "grpc_stopped"
 		}
 	}
 
+	shutdownStarted := time.Now()
+	logger.Info(
+		"shutdown started",
+		logFieldEvent, "shutdown.started",
+		logFieldTrigger, shutdownTrigger,
+		"shutdown_timeout_ms", s.config.HTTP.ShutdownTimeout.Milliseconds(),
+	)
 	cleanupErr := s.cleanup(logger, srv, httpsSrv, &wg)
+	s.logShutdownSummary(logger, shutdownStarted, shutdownTrigger, runErr, cleanupErr)
 	return errors.Join(runErr, cleanupErr)
 }
 
@@ -244,6 +265,90 @@ func (s *APIServer) cleanup(logger *slog.Logger, httpSrv, httpsSrv *http.Server,
 		return errors.Join(shutdownErrs...)
 	}
 	return nil
+}
+
+func (s *APIServer) logShutdownSummary(
+	logger *slog.Logger,
+	start time.Time,
+	trigger string,
+	runErr error,
+	cleanupErr error,
+) {
+	outcome := overallShutdownOutcome(runErr, cleanupErr)
+	level := slog.LevelInfo
+	if outcome != string(shutdownOutcomeGraceful) {
+		level = slog.LevelWarn
+	}
+
+	attrs := []slog.Attr{
+		slog.String(logFieldEvent, "shutdown.completed"),
+		slog.String(logFieldTrigger, trigger),
+		slog.String(logFieldOutcome, outcome),
+		slog.Int64(config.LogFieldDurationMS, time.Since(start).Milliseconds()),
+	}
+
+	if s.queue != nil {
+		attrs = append(attrs, slog.Int("queue_depth", len(s.queue.Chan())))
+	}
+	if s.eventHub != nil {
+		attrs = append(attrs,
+			slog.Int64("sse_subscribers", s.eventHub.Subscribers()),
+			slog.Int64("sse_events_total", s.eventHub.EventsTotal()),
+			slog.Int64("sse_drops_total", s.eventHub.DropsTotal()),
+		)
+	}
+	if s.pool != nil {
+		if stopOutcome, ok := s.pool.LastStopOutcome(); ok {
+			attrs = append(attrs, slog.Int("repaired_active_jobs", stopOutcome.RepairedActiveJobs))
+		}
+	}
+
+	logger.LogAttrs(context.Background(), level, "shutdown completed", attrs...)
+}
+
+func overallShutdownOutcome(runErr error, cleanupErr error) string {
+	switch {
+	case runErr == nil && cleanupErr == nil:
+		return string(shutdownOutcomeGraceful)
+	case hasShutdownOutcome(cleanupErr, shutdownOutcomeForced):
+		return string(shutdownOutcomeForced)
+	case hasShutdownOutcome(cleanupErr, shutdownOutcomeTimedOut):
+		return string(shutdownOutcomeTimedOut)
+	default:
+		return string(shutdownOutcomeFailed)
+	}
+}
+
+func hasShutdownOutcome(err error, outcome shutdownOutcome) bool {
+	if err == nil {
+		return false
+	}
+
+	var componentErr *componentShutdownError
+	if errors.As(err, &componentErr) && componentErr.Outcome == outcome {
+		return true
+	}
+
+	type multiUnwrapper interface {
+		Unwrap() []error
+	}
+	if unwrapped, ok := err.(multiUnwrapper); ok {
+		for _, child := range unwrapped.Unwrap() {
+			if hasShutdownOutcome(child, outcome) {
+				return true
+			}
+		}
+		return false
+	}
+
+	type singleUnwrapper interface {
+		Unwrap() error
+	}
+	if unwrapped, ok := err.(singleUnwrapper); ok {
+		return hasShutdownOutcome(unwrapped.Unwrap(), outcome)
+	}
+
+	return false
 }
 
 type namedHTTPServer struct {

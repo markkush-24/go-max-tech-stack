@@ -1,8 +1,11 @@
 package api
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"log/slog"
 	"net"
 	"net/http"
 	"pet-study/internal/config"
@@ -14,12 +17,17 @@ import (
 	"pet-study/internal/store/userrepo"
 	"pet-study/internal/stream"
 	"pet-study/internal/workerpool"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 )
 
 func TestRunShutdownUsesOneGlobalBudgetAndReportsForcedOutcomes(t *testing.T) {
+	var logs bytes.Buffer
+	restoreLogger := replaceDefaultLogger(t, &logs)
+	defer restoreLogger()
+
 	q := queue.New(1)
 	hub := stream.NewHub(16)
 	pool := newSupervisorTestPool(q, hub)
@@ -86,6 +94,22 @@ func TestRunShutdownUsesOneGlobalBudgetAndReportsForcedOutcomes(t *testing.T) {
 	}
 	if elapsed > 350*time.Millisecond {
 		t.Fatalf("shutdown elapsed=%s, want one global budget around %s", elapsed, cfg.HTTP.ShutdownTimeout)
+	}
+	summary := findLogRecordByEvent(t, logs.String(), "shutdown.completed")
+	if summary[logFieldTrigger] != "context" {
+		t.Fatalf("shutdown trigger=%v want context", summary[logFieldTrigger])
+	}
+	if summary[logFieldOutcome] != string(shutdownOutcomeForced) {
+		t.Fatalf("shutdown outcome=%v want forced", summary[logFieldOutcome])
+	}
+	if _, ok := summary[config.LogFieldDurationMS]; !ok {
+		t.Fatalf("shutdown summary missing duration_ms: %#v", summary)
+	}
+	if summary["queue_depth"] == nil || summary["sse_subscribers"] == nil || summary["repaired_active_jobs"] == nil {
+		t.Fatalf("shutdown summary missing aggregate fields: %#v", summary)
+	}
+	if _, ok := summary[config.LogFieldError]; ok {
+		t.Fatalf("shutdown summary must not include raw err: %#v", summary)
 	}
 	assertSupervisorCleanup(t, q, pool, hub, grpcRuntime)
 }
@@ -214,6 +238,35 @@ func waitClosed(t *testing.T, ch <-chan struct{}, name string) {
 	case <-time.After(2 * time.Second):
 		t.Fatalf("timeout waiting for %s", name)
 	}
+}
+
+func replaceDefaultLogger(t *testing.T, buf *bytes.Buffer) func() {
+	t.Helper()
+
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(buf, nil)))
+	return func() {
+		slog.SetDefault(prev)
+	}
+}
+
+func findLogRecordByEvent(t *testing.T, logText string, event string) map[string]any {
+	t.Helper()
+
+	for _, line := range strings.Split(strings.TrimSpace(logText), "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		var record map[string]any
+		if err := json.Unmarshal([]byte(line), &record); err != nil {
+			t.Fatalf("unmarshal log line: %v line=%q", err, line)
+		}
+		if record[logFieldEvent] == event {
+			return record
+		}
+	}
+	t.Fatalf("log event %q not found in logs:\n%s", event, logText)
+	return nil
 }
 
 func assertSupervisorCleanup(
